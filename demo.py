@@ -226,6 +226,7 @@ async def index(request: Request):
         "salon_name": SALON_NAME,
         "salon_address": SALON_ADDRESS,
         "groomer_telegram": GROOMER_TELEGRAM,
+        "bot_enabled": bool(BOT_TOKEN),
     })
 
 
