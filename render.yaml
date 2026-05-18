@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: groomer-demo
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python demo.py
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SALON_NAME
+        value: Pawfect Studio
+      - key: SALON_ADDRESS
+        value: ul. Kwiatowa 12, Warszawa
+      - key: PYTHON_VERSION
+        value: 3.11.9
