@@ -396,7 +396,7 @@ async def api_schedule_view(date: str = ""):
             FROM reminders r
             JOIN pets p ON p.id = r.pet_id
             JOIN owners o ON o.id = p.owner_id
-            WHERE r.kind='visit' AND r.sent_at IS NULL
+            WHERE r.kind='visit'
               AND date(r.scheduled_for) = ?
             ORDER BY r.scheduled_for
         """, (target,))).fetchall()

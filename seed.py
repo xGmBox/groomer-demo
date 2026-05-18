@@ -142,10 +142,17 @@ async def seed_data(db_file: str):
                     VALUES (?, 'visit', ?, ?, ?)
                 """, (pet_id, f"{nv.isoformat()} 15:00", "Повне грумування", ng_id))
 
-        # Три додаткових записи на завтра — по одному на кожного грумера
-        # Потрібні pet_id: беремо перших трьох клієнтів
+        # Записи на сьогодні та завтра — по одному на кожного грумера
         cur = await conn.execute("SELECT id FROM pets ORDER BY id LIMIT 3")
         pet_ids = [r[0] for r in await cur.fetchall()]
+
+        services_today = ["Повне грумування", "Купання + стрижка", "Купання + сушка + нігті"]
+        for i, (pid, gid) in enumerate(zip(pet_ids, groomer_ids)):
+            hour = 10 + i * 2  # 10:00, 12:00, 14:00
+            await conn.execute("""
+                INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id)
+                VALUES (?, 'visit', ?, ?, ?)
+            """, (pid, f"{today.isoformat()} {hour:02d}:00", services_today[i], gid))
 
         for i, (pid, gid) in enumerate(zip(pet_ids, groomer_ids)):
             hour = 10 + i * 2  # 10:00, 12:00, 14:00

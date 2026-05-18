@@ -938,7 +938,7 @@ async function renderSchedule() {
         <div class="groomer-header" style="border-left-color:${g.color};">
           <span class="groomer-dot" style="background:${g.color};"></span>
           ${g.name}
-          <span class="groomer-count">${visits.length} запис${visits.length === 1 ? "" : "ів"}</span>
+          <span class="groomer-count">${visits.length} ${plural(visits.length, "запис", "записи", "записів")}</span>
         </div>
         ${visitsHtml}
       </div>
@@ -963,6 +963,13 @@ async function renderSchedule() {
       ${tabBtn("analytics", T.tabAnalytics)}
     </div>
   `;
+  setTimeout(() => {
+    const tabs = document.querySelector('.tabs');
+    const at = tabs?.querySelector('.tab.active');
+    if (!tabs || !at) return;
+    const tr = tabs.getBoundingClientRect(), ar = at.getBoundingClientRect();
+    tabs.scrollLeft += (ar.left + ar.width / 2) - (tr.left + tr.width / 2);
+  }, 100);
 }
 
 window.setScheduleDate = (iso) => {
@@ -1022,23 +1029,15 @@ async function renderAnalytics() {
               onclick="setAnalyticsPeriod('last_month')">Минулий місяць</button>
     </div>
 
-    <div class="stats" style="flex-wrap:wrap;">
-      <div class="stat">
-        <div class="label">Дохід</div>
-        <div class="value">${data.revenue_total} zł</div>
-      </div>
-      <div class="stat">
-        <div class="label">Візитів</div>
-        <div class="value">${data.visits_count}</div>
-      </div>
-      <div class="stat">
-        <div class="label">Середній чек</div>
-        <div class="value">${Math.round(data.avg_per_visit)} zł</div>
-      </div>
-      <div class="stat">
-        <div class="label">Нових клієнтів</div>
-        <div class="value">${data.new_clients}</div>
-      </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 14px 10px;">
+      <div class="stat"><div class="label">Дохід</div>
+        <div class="value" style="white-space:nowrap;">${data.revenue_total} zł</div></div>
+      <div class="stat"><div class="label">Візитів</div>
+        <div class="value">${data.visits_count}</div></div>
+      <div class="stat"><div class="label">Сер. чек</div>
+        <div class="value" style="white-space:nowrap;">${Math.round(data.avg_per_visit)} zł</div></div>
+      <div class="stat"><div class="label">Нових клієнтів</div>
+        <div class="value">${data.new_clients}</div></div>
     </div>
 
     <div class="card">
@@ -1060,6 +1059,13 @@ async function renderAnalytics() {
       ${tabBtn("analytics", T.tabAnalytics)}
     </div>
   `;
+  setTimeout(() => {
+    const tabs = document.querySelector('.tabs');
+    const at = tabs?.querySelector('.tab.active');
+    if (!tabs || !at) return;
+    const tr = tabs.getBoundingClientRect(), ar = at.getBoundingClientRect();
+    tabs.scrollLeft += (ar.left + ar.width / 2) - (tr.left + tr.width / 2);
+  }, 100);
 }
 
 window.setAnalyticsPeriod = (p) => {
