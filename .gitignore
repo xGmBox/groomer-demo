@@ -55,3 +55,4 @@ alembic/versions/__pycache__/
 
 # Demo DB
 salon.db
+test-results/

@@ -38,6 +38,32 @@ SALON_NAME = os.getenv("SALON_NAME", "Pawfect Studio")
 SALON_ADDRESS = os.getenv("SALON_ADDRESS", "ul. Kwiatowa 12, Warszawa")
 GROOMER_TELEGRAM = os.getenv("GROOMER_TELEGRAM", "anna_groomer")
 
+# ── Каталог послуг (S/M/L ціни в PLN, тривалість у хвилинах) ─────────────────
+SERVICES = [
+    {"key": "full",       "name_uk": "Повне грумування",         "name_pl": "Pełne grooming",
+     "price_s": 120, "price_m": 180, "price_l": 240, "duration_min": 120},
+    {"key": "bath_cut",   "name_uk": "Купання + стрижка",        "name_pl": "Kąpiel + strzyżenie",
+     "price_s": 90,  "price_m": 150, "price_l": 200, "duration_min": 90},
+    {"key": "bath_dry",   "name_uk": "Купання + сушка",          "name_pl": "Kąpiel + suszenie",
+     "price_s": 60,  "price_m": 100, "price_l": 160, "duration_min": 60},
+    {"key": "nails",      "name_uk": "Стрижка кігтів",           "name_pl": "Obcięcie pazurów",
+     "price_s": 25,  "price_m": 30,  "price_l": 40,  "duration_min": 15},
+    {"key": "deshed",     "name_uk": "Вичісування / фурмінатор", "name_pl": "Furminator / wyczesywanie",
+     "price_s": 70,  "price_m": 110, "price_l": 150, "duration_min": 60},
+]
+
+BREED_SIZE = {  # дефолтний розмір по породі для авто-цін
+    "pudel": "m", "pitbull": "l", "shiba": "m",
+    "shih": "s", "german shepherd": "l", "yorkshire": "s",
+}
+
+def size_for_breed(breed: str | None) -> str:
+    b = (breed or "").lower()
+    for k, sz in BREED_SIZE.items():
+        if k in b:
+            return sz
+    return "m"
+
 # ── Схема ────────────────────────────────────────────────────────────────────
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS groomers (
@@ -109,7 +135,10 @@ async def db_init():
         for sql in [
             "ALTER TABLE visits ADD COLUMN photo_before TEXT",
             "ALTER TABLE visits ADD COLUMN groomer_id INTEGER",
+            "ALTER TABLE visits ADD COLUMN rating INTEGER",
             "ALTER TABLE reminders ADD COLUMN groomer_id INTEGER",
+            "ALTER TABLE reminders ADD COLUMN confirmation_status TEXT",
+            "ALTER TABLE reminders ADD COLUMN requested_by_owner INTEGER DEFAULT 0",
         ]:
             try:
                 await conn.execute(sql)
@@ -305,6 +334,42 @@ async def api_groomers():
         await conn.close()
 
 
+@app.get("/api/services")
+async def api_services(lang: str = "uk"):
+    key_name = "name_pl" if lang == "pl" else "name_uk"
+    return [
+        {
+            "key": s["key"],
+            "name": s[key_name],
+            "price_s": s["price_s"], "price_m": s["price_m"], "price_l": s["price_l"],
+            "duration_min": s["duration_min"],
+        }
+        for s in SERVICES
+    ]
+
+
+class ConfirmIn(BaseModel):
+    status: str  # confirmed | rescheduled | cancelled
+
+
+@app.post("/api/reminders/{reminder_id}/confirm")
+async def api_confirm_reminder(reminder_id: int, body: ConfirmIn):
+    if body.status not in ("confirmed", "rescheduled", "cancelled"):
+        raise HTTPException(400, "Invalid status")
+    conn = await db()
+    try:
+        cur = await conn.execute(
+            "UPDATE reminders SET confirmation_status=? WHERE id=?",
+            (body.status, reminder_id),
+        )
+        await conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Reminder not found")
+        return {"ok": True, "status": body.status}
+    finally:
+        await conn.close()
+
+
 @app.get("/api/pets")
 async def api_pets():
     conn = await db()
@@ -390,7 +455,7 @@ async def api_schedule_view(date: str = ""):
         )).fetchall()]
         rows = await (await conn.execute("""
             SELECT r.id, r.pet_id, r.scheduled_for, r.payload AS service,
-                   r.groomer_id,
+                   r.groomer_id, r.confirmation_status, r.requested_by_owner,
                    p.name AS pet_name, p.breed, p.photo_url,
                    o.name AS owner_name, o.phone AS owner_phone
             FROM reminders r
@@ -439,7 +504,7 @@ async def api_analytics(period: str = "month"):
     conn = await db()
     try:
         visits_rows = await (await conn.execute("""
-            SELECT v.visit_date, v.service, v.price, p.owner_id, o.created_at AS owner_created
+            SELECT v.visit_date, v.service, v.price, v.rating, p.owner_id, o.created_at AS owner_created
             FROM visits v
             JOIN pets p ON p.id = v.pet_id
             JOIN owners o ON o.id = p.owner_id
@@ -471,6 +536,20 @@ async def api_analytics(period: str = "month"):
             for w, r in sorted(weekly.items())
         ]
 
+        # Підтвердження візитів (всі нагадування у періоді)
+        conf_rows = await (await conn.execute("""
+            SELECT confirmation_status FROM reminders
+            WHERE kind='visit'
+              AND date(scheduled_for) >= ? AND date(scheduled_for) <= ?
+        """, (start.isoformat(), end.isoformat()))).fetchall()
+        total_rem = len(conf_rows)
+        confirmed = sum(1 for r in conf_rows if (r["confirmation_status"] or "") == "confirmed")
+        confirm_rate = round(confirmed / total_rem * 100) if total_rem else 0
+
+        # Середній рейтинг
+        rating_rows = [r for r in visits_list if r.get("rating")]
+        avg_rating = round(sum(r["rating"] for r in rating_rows) / len(rating_rows), 1) if rating_rows else 0
+
         return {
             "period": period,
             "start": start.isoformat(),
@@ -481,6 +560,9 @@ async def api_analytics(period: str = "month"):
             "new_clients": new_clients,
             "top_services": top_services,
             "revenue_by_week": revenue_by_week,
+            "confirm_rate": confirm_rate,
+            "avg_rating": avg_rating,
+            "ratings_count": len(rating_rows),
         }
     finally:
         await conn.close()
@@ -571,6 +653,7 @@ class VisitIn(BaseModel):
     notes: str | None = ""
     photo_before: str | None = ""
     photo_url: str | None = ""
+    rating: int | None = None
     groomer_id: int | None = None
     schedule_followup: bool = True
 
@@ -586,12 +669,13 @@ async def api_add_visit(pet_id: int, body: VisitIn):
             raise HTTPException(404, "Pet not found")
         await conn.execute("""
             INSERT INTO visits
-              (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url)
-            VALUES (?,?,?,?,?,?,?,?,?)
+              (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url, rating)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
         """, (
             pet_id, body.groomer_id, body.visit_date, body.service,
             body.cut_style, body.price, body.notes,
             body.photo_before or None, body.photo_url or None,
+            body.rating,
         ))
         if body.schedule_followup:
             visit_dt = datetime.strptime(body.visit_date, "%Y-%m-%d").date()
@@ -610,6 +694,7 @@ class NextVisitIn(BaseModel):
     visit_date: str
     service: str | None = "Стрижка"
     groomer_id: int | None = None
+    requested_by_owner: bool = False
 
 
 @app.post("/api/pets/{pet_id}/schedule")
@@ -630,9 +715,14 @@ async def api_schedule(pet_id: int, body: NextVisitIn):
             (pet_id,),
         )
         await conn.execute("""
-            INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id)
-            VALUES (?, 'visit', ?, ?, ?)
-        """, (pet_id, visit_dt.isoformat(sep=" "), body.service, body.groomer_id))
+            INSERT INTO reminders
+              (pet_id, kind, scheduled_for, payload, groomer_id, requested_by_owner, confirmation_status)
+            VALUES (?, 'visit', ?, ?, ?, ?, ?)
+        """, (
+            pet_id, visit_dt.isoformat(sep=" "), body.service, body.groomer_id,
+            1 if body.requested_by_owner else 0,
+            None,
+        ))
         await conn.commit()
         return await pet_full(conn, pet_id)
     finally:
@@ -678,21 +768,32 @@ async def api_send_reminder(pet_id: int, kind: str):
 
 
 # ── Шаблони нагадувань ───────────────────────────────────────────────────────
-def render_reminder(pet: dict, kind: str) -> str:
+def render_reminder(pet: dict, kind: str, lang: str | None = None) -> str:
     owner = pet.get("owner") or {}
     name = owner.get("name", "")
     pet_name = pet["name"]
+    if lang is None:
+        lang = (owner.get("language") or "uk").lower()
+    pl = lang == "pl"
+
     if kind == "visit":
         nv = pet.get("next_visit")
-        when = ""
+        time_str = ""
         if nv:
             try:
                 dt = datetime.fromisoformat(nv["scheduled_for"])
-                when = f"завтра о {dt.strftime('%H:%M')}"
+                time_str = dt.strftime("%H:%M")
             except Exception:
-                when = "завтра"
-        else:
-            when = "завтра"
+                pass
+        if pl:
+            when = f"jutro o {time_str}" if time_str else "jutro"
+            return (
+                f"Cześć, {name}! 🐾\n"
+                f"Przypominamy: {when} czekamy na {pet_name} na strzyżenie.\n"
+                f"📍 {SALON_ADDRESS}\n\n"
+                f"Jeśli plany się zmieniły — napisz w odpowiedzi."
+            )
+        when = f"завтра о {time_str}" if time_str else "завтра"
         return (
             f"Привіт, {name}! 🐾\n"
             f"Нагадуємо: {when} чекаємо {pet_name} на стрижку.\n"
@@ -700,6 +801,12 @@ def render_reminder(pet: dict, kind: str) -> str:
             f"Якщо плани змінились — просто напишіть у відповідь."
         )
     if kind == "birthday":
+        if pl:
+            return (
+                f"🎂 Dziś {pet_name} obchodzi urodziny!\n\n"
+                f"Gratulujemy, {name} 💚\n"
+                f"W tym tygodniu — 15% zniżki na dowolną usługę dla solenizanta."
+            )
         return (
             f"🎂 Сьогодні {pet_name} святкує день народження!\n\n"
             f"Вітаємо вас, {name} 💚\n"
@@ -707,12 +814,18 @@ def render_reminder(pet: dict, kind: str) -> str:
         )
     if kind == "followup":
         weeks = pet.get("weeks_since_last_visit") or pet.get("followup_weeks", 6)
+        if pl:
+            return (
+                f"Cześć, {name}! 🐶\n"
+                f"Tęsknimy za {pet_name} — ostatnio byliście u nas {weeks} tyg. temu.\n"
+                f"Czas na nowe strzyżenie? Napisz, kiedy ci wygodnie."
+            )
         return (
             f"Привіт, {name}! 🐶\n"
             f"Скучили за {pet_name} — востаннє були в нас {weeks} тижнів тому.\n"
             f"Час на нову стрижку? Напишіть, коли вам зручно."
         )
-    return f"Нагадування для {pet_name}."
+    return f"Reminder for {pet_name}."
 
 
 # ── Планувальник ─────────────────────────────────────────────────────────────

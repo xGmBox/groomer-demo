@@ -13,7 +13,7 @@ GROOMER_DEFS = [
 
 CLIENTS = [
     {
-        "owner": {"name": "Anna Kowalska",   "phone": "+48 501 234 567", "telegram_id": None},
+        "owner": {"name": "Anna Kowalska",   "phone": "+48 501 234 567", "telegram_id": None, "language": "pl"},
         "pet": {
             "name": "Sam", "breed": "Pitbull",
             "birthday": (date.today() + timedelta(days=3)).replace(year=2020).isoformat(),
@@ -30,7 +30,7 @@ CLIENTS = [
         "next_groomer_idx": 0,
     },
     {
-        "owner": {"name": "Piotr Nowak", "phone": "+48 602 345 678", "telegram_id": None},
+        "owner": {"name": "Piotr Nowak", "phone": "+48 602 345 678", "telegram_id": None, "language": "pl"},
         "pet": {
             "name": "Chinnu", "breed": "Shiba Inu",
             "birthday": "2022-08-15",
@@ -46,7 +46,7 @@ CLIENTS = [
         "next_groomer_idx": 1,
     },
     {
-        "owner": {"name": "Maria Wójcik", "phone": "+48 503 456 789", "telegram_id": None},
+        "owner": {"name": "Maria Wójcik", "phone": "+48 503 456 789", "telegram_id": None, "language": "pl"},
         "pet": {
             "name": "Coco", "breed": "German Shepherd",
             "birthday": "2022-04-10",
@@ -63,7 +63,7 @@ CLIENTS = [
         "next_groomer_idx": 2,
     },
     {
-        "owner": {"name": "Olena Pawlak", "phone": "+48 504 567 890", "telegram_id": None},
+        "owner": {"name": "Olena Pawlak", "phone": "+48 504 567 890", "telegram_id": None, "language": "uk"},
         "pet": {
             "name": "Bella", "breed": "Pudel",
             "birthday": "2019-12-22",
@@ -75,11 +75,11 @@ CLIENTS = [
         "visits": [
             # Остання стрижка — з фото до/після
             {"days_ago": 5,  "service": "Повне грумування", "cut_style": "Pudel classic", "price": 220, "notes": "Дуже задоволена",
-             "groomer_idx": 0,
+             "groomer_idx": 0, "rating": 5,
              "photo_before": "/static/img/sample_before.svg",
              "photo_url":    "/static/img/sample_after.svg"},
-            {"days_ago": 42, "service": "Стрижка кігтів",   "cut_style": "—",              "price": 30,  "notes": "", "groomer_idx": 1},
-            {"days_ago": 90, "service": "Повне грумування", "cut_style": "Pudel classic", "price": 220, "notes": "", "groomer_idx": 0},
+            {"days_ago": 42, "service": "Стрижка кігтів",   "cut_style": "—",              "price": 30,  "notes": "", "groomer_idx": 1, "rating": 5},
+            {"days_ago": 90, "service": "Повне грумування", "cut_style": "Pudel classic", "price": 220, "notes": "", "groomer_idx": 0, "rating": 4},
         ],
         "next_visit_in_days": 7,
         "next_groomer_idx": 0,
@@ -104,8 +104,8 @@ async def seed_data(db_file: str):
         for c in CLIENTS:
             o = c["owner"]
             cur = await conn.execute(
-                "INSERT INTO owners (name, phone, telegram_id) VALUES (?,?,?)",
-                (o["name"], o["phone"], o["telegram_id"]),
+                "INSERT INTO owners (name, phone, telegram_id, language) VALUES (?,?,?,?)",
+                (o["name"], o["phone"], o["telegram_id"], o.get("language", "uk")),
             )
             owner_id = cur.lastrowid
 
@@ -125,40 +125,44 @@ async def seed_data(db_file: str):
                 gid = groomer_ids[v.get("groomer_idx", 0)]
                 await conn.execute("""
                     INSERT INTO visits
-                      (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                      (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url, rating)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
                 """, (
                     pet_id, gid, dt.isoformat(),
                     v["service"], v["cut_style"], v["price"], v["notes"],
-                    v.get("photo_before"), v.get("photo_url"),
+                    v.get("photo_before"), v.get("photo_url"), v.get("rating"),
                 ))
 
             if c.get("next_visit_in_days"):
                 nv = today + timedelta(days=c["next_visit_in_days"])
                 ng_idx = c.get("next_groomer_idx", 0)
                 ng_id = groomer_ids[ng_idx]
+                # Bella (4-й клієнт) — підтверджене, Sam (1-й) — очікує
+                conf = "confirmed" if p["name"] == "Bella" else None
                 await conn.execute("""
-                    INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id)
-                    VALUES (?, 'visit', ?, ?, ?)
-                """, (pet_id, f"{nv.isoformat()} 15:00", "Повне грумування", ng_id))
+                    INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id, confirmation_status)
+                    VALUES (?, 'visit', ?, ?, ?, ?)
+                """, (pet_id, f"{nv.isoformat()} 15:00", "Повне грумування", ng_id, conf))
 
         # Записи на сьогодні та завтра — по одному на кожного грумера
         cur = await conn.execute("SELECT id FROM pets ORDER BY id LIMIT 3")
         pet_ids = [r[0] for r in await cur.fetchall()]
 
         services_today = ["Повне грумування", "Купання + стрижка", "Купання + сушка + нігті"]
+        statuses_today = ["confirmed", None, "rescheduled"]  # для демонстрації всіх станів
         for i, (pid, gid) in enumerate(zip(pet_ids, groomer_ids)):
             hour = 10 + i * 2  # 10:00, 12:00, 14:00
             await conn.execute("""
-                INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id)
-                VALUES (?, 'visit', ?, ?, ?)
-            """, (pid, f"{today.isoformat()} {hour:02d}:00", services_today[i], gid))
+                INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id, confirmation_status)
+                VALUES (?, 'visit', ?, ?, ?, ?)
+            """, (pid, f"{today.isoformat()} {hour:02d}:00", services_today[i], gid, statuses_today[i]))
 
+        statuses_tomorrow = [None, "confirmed", None]
         for i, (pid, gid) in enumerate(zip(pet_ids, groomer_ids)):
             hour = 10 + i * 2  # 10:00, 12:00, 14:00
             await conn.execute("""
-                INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id)
-                VALUES (?, 'visit', ?, ?, ?)
-            """, (pid, f"{tomorrow.isoformat()} {hour:02d}:00", "Стрижка", gid))
+                INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id, confirmation_status)
+                VALUES (?, 'visit', ?, ?, ?, ?)
+            """, (pid, f"{tomorrow.isoformat()} {hour:02d}:00", "Стрижка", gid, statuses_tomorrow[i]))
 
         await conn.commit()
