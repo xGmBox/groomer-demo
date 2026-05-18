@@ -1,10 +1,8 @@
 /* ──────────────────────────────────────────────────────────────────────────
    Groomer Mini App — клієнтський JS
-   Один SPA-роутер на дві ролі: owner | groomer
    ────────────────────────────────────────────────────────────────────────── */
 
 const T = {
-  // загальне
   back: "←",
   loading: "Завантаження…",
   save: "Зберегти",
@@ -14,17 +12,14 @@ const T = {
   skip: "Пропустити",
   done: "Готово",
 
-  // role
   ownerRole: "Клієнт",
   groomerRole: "Грумер",
 
-  // owner — welcome
   welcomeTitle: "Ласкаво просимо! 🐾",
   welcomeSub:
     "Заповніть коротку анкету, щоб ми пам'ятали все про вашого улюбленця — алергії, улюблений тип стрижки та день народження.",
   welcomeStart: "Заповнити картку",
 
-  // owner — pet view
   myPet: "Мій улюбленець",
   nextVisitTitle: "Наступний візит",
   noNextVisit: "Поки не заплановано — ми надішлемо нагадування, коли запис буде.",
@@ -35,7 +30,6 @@ const T = {
   birthdaySoon: "День народження",
   birthdayDays: (d) => `за ${d} ${plural(d, "день", "дні", "днів")}`,
 
-  // groomer
   dashboard: "Дашборд",
   today: "Сьогодні",
   birthdays: "ДН тижня",
@@ -44,8 +38,9 @@ const T = {
   tabToday: "Сьогодні",
   tabBirthdays: "Дні народження",
   tabFollowup: "Час нагадати",
+  tabSchedule: "Розклад",
+  tabAnalytics: "Аналітика",
 
-  // pet detail (groomer)
   owner: "Власник",
   writeTelegram: "Написати в Telegram",
   call: "Зателефонувати",
@@ -57,7 +52,6 @@ const T = {
   scheduleNext: "📅 Запланувати",
   sendReminder: "📨 Нагадування",
 
-  // sheets
   addVisitTitle: "Додати візит",
   visitDate: "Дата візиту",
   service: "Послуга",
@@ -65,6 +59,9 @@ const T = {
   price: "Ціна, zł",
   visitNotes: "Нотатки",
   scheduleFollowup: "Запланувати наступний візит через 6 тижнів",
+  groomerLabel: "Грумер",
+  photoBefore: "Фото до стрижки (URL або залиште порожнім)",
+  photoAfter: "Фото після стрижки (URL або залиште порожнім)",
 
   scheduleTitle: "Запланувати наступний візит",
   scheduleDate: "Дата і час",
@@ -78,7 +75,8 @@ const T = {
   reminderSent: "Надіслано в Telegram ✓",
   reminderDemo: "Демо-режим: повідомлення показане лише в превʼю",
 
-  // questionnaire labels
+  loyaltyTitle: "Картка лояльності",
+
   qOwnerName: "Як вас звати?",
   qOwnerPhone: "Ваш телефон",
   qPetName: "Як звати собачку?",
@@ -108,7 +106,6 @@ function plural(n, one, few, many) {
 const $ = (sel, el = document) => el.querySelector(sel);
 const app = $("#app");
 
-// ── Telegram WebApp init ────────────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.ready();
@@ -116,7 +113,6 @@ if (tg) {
 }
 const tgUser = tg?.initDataUnsafe?.user;
 
-// ── Стан ────────────────────────────────────────────────────────────────────
 const params = new URLSearchParams(location.search);
 let role = params.get("role") || "owner";
 let forceNew = params.get("new") === "1";
@@ -178,9 +174,26 @@ function fmtNextVisit(iso) {
   return `${dt.getDate()} ${months[dt.getMonth()]}, ${hh}:${mm}`;
 }
 
+function fmtTime(iso) {
+  if (!iso) return "";
+  const dt = new Date(iso.replace(" ", "T"));
+  return `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+}
+
 function isoToday() {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+}
+
+function isoDate(dt) {
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+}
+
+function fmtDateShort(iso) {
+  const dt = new Date(iso + "T00:00:00");
+  const days = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"];
+  const months = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
+  return `${days[dt.getDay()]} ${dt.getDate()} ${months[dt.getMonth()]}`;
 }
 
 function roleToggleBtn() {
@@ -191,6 +204,7 @@ function roleToggleBtn() {
 
 window.switchRole = (r) => {
   role = r;
+  groomerTab = "all";
   const u = new URL(location.href);
   u.searchParams.set("role", r);
   u.searchParams.delete("new");
@@ -209,10 +223,41 @@ function header({ title, backFn = "" } = {}) {
   `;
 }
 
+// ── Loyalty card ─────────────────────────────────────────────────────────────
+function loyaltyCard(loyalty) {
+  if (!loyalty) return "";
+  const { cycle_position, visits_to_milestone, milestone_reached, milestone_discount, visit_count } = loyalty;
+
+  // Display 10 paw icons; 5th (idx=4) and 10th (idx=9) are milestone positions
+  const paws = Array.from({ length: 10 }, (_, i) => {
+    let cls = "paw-icon";
+    if (i < cycle_position) cls += " filled";
+    if (i === 4 || i === 9) cls += " milestone";
+    return `<span class="${cls}">🐾</span>`;
+  }).join("");
+
+  let statusHtml = "";
+  if (milestone_reached) {
+    statusHtml = `<div class="loyalty-milestone">Ця стрижка зі знижкою ${milestone_discount}%!</div>`;
+  } else if (visit_count === 0) {
+    statusHtml = `<div class="loyalty-status">Ще ${visits_to_milestone} ${plural(visits_to_milestone, "стрижка", "стрижки", "стрижок")} до першої знижки 10%</div>`;
+  } else {
+    const nextN = cycle_position < 5 ? 5 : 10;
+    statusHtml = `<div class="loyalty-status">${cycle_position} з ${nextN} — ще ${visits_to_milestone} ${plural(visits_to_milestone, "стрижка", "стрижки", "стрижок")} до знижки ${milestone_discount}%</div>`;
+  }
+
+  return `
+    <div class="card loyalty-card">
+      <div class="loyalty-title">${T.loyaltyTitle}</div>
+      <div class="loyalty-paws">${paws}</div>
+      ${statusHtml}
+    </div>
+  `;
+}
+
 // ── РОУТЕР ──────────────────────────────────────────────────────────────────
 async function render() {
   app.innerHTML = `<div class="loading">${T.loading}</div>`;
-
   if (role === "owner") {
     await renderOwner();
   } else {
@@ -225,24 +270,17 @@ async function render() {
 // ============================================================================
 
 async function renderOwner() {
-  if (forceNew) {
-    return renderQuestionnaire();
-  }
+  if (forceNew) return renderQuestionnaire();
 
-  // В реальному Telegram — знаходимо клієнта за tgUser.id
   if (tgUser?.id) {
     try {
       const data = await api(`/api/owner/${tgUser.id}`);
-      if (!data.owner || data.pets.length === 0) {
-        return renderWelcome();
-      }
+      if (!data.owner || data.pets.length === 0) return renderWelcome();
       return renderOwnerPetCard(data.pets[0]);
     } catch (e) {
       return renderWelcome();
     }
   }
-
-  // Браузерне демо — показуємо лендінг з двома сценаріями
   return renderOwnerDemoLanding();
 }
 
@@ -264,7 +302,7 @@ function renderOwnerDemoLanding() {
           <div>
             <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Перший раз у салоні</div>
             <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
-              Клієнт відкриває Mini App вперше → вітальний екран → анкета (8 кроків) → готова картка
+              Клієнт відкриває Mini App вперше → анкета (8 кроків) → готова картка
             </div>
           </div>
           <div style="color:var(--text-soft); font-size:18px;">›</div>
@@ -278,7 +316,7 @@ function renderOwnerDemoLanding() {
           <div>
             <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Постійний клієнт</div>
             <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
-              Відкриває додаток і бачить: картку улюбленця, наступний візит, нагадування, історію
+              Відкриває додаток і бачить: картку улюбленця, картку лояльності, наступний візит
             </div>
           </div>
           <div style="color:var(--text-soft); font-size:18px;">›</div>
@@ -296,9 +334,8 @@ window.renderWelcome = renderWelcome;
 window.showDemoReturningClient = async () => {
   const pets = await api("/api/pets");
   if (pets.length === 0) return renderWelcome();
-  // Беремо Sam — він найцікавіший (є наступний візит, день народження скоро)
-  const sam = pets.find(p => p.name === "Sam") || pets[0];
-  const pet = await api(`/api/pets/${sam.id}`);
+  const bella = pets.find(p => p.name === "Bella") || pets[0];
+  const pet = await api(`/api/pets/${bella.id}`);
   renderOwnerPetCard(pet, true);
 };
 
@@ -328,16 +365,16 @@ window.startQuestionnaire = () => {
   renderQuestionnaire();
 };
 
-// ── Анкета — однопитанневий wizard ──────────────────────────────────────────
+// ── Анкета ───────────────────────────────────────────────────────────────────
 const Q_STEPS = [
-  { key: "owner_name", label: T.qOwnerName, type: "text", required: true, placeholder: "Анна" },
-  { key: "owner_phone", label: T.qOwnerPhone, type: "phone" },
-  { key: "pet_name", label: T.qPetName, type: "text", required: true, placeholder: "Сем" },
-  { key: "photo_url", label: T.qPhoto, sub: T.qPhotoSub, type: "photo" },
-  { key: "breed", label: T.qBreed, type: "text", placeholder: "Pudel / Mix / ..." },
-  { key: "birthday", label: T.qBirthday, sub: T.qBirthdaySub, type: "date" },
-  { key: "allergies", label: T.qAllergies, sub: T.qAllergiesSub, type: "textarea", placeholder: "Куряче м'ясо, овес..." },
-  { key: "preferred_cut", label: T.qCut, sub: T.qCutSub, type: "textarea", placeholder: "Коротко, акуратні лапи..." },
+  { key: "owner_name",   label: T.qOwnerName,   type: "text",     required: true, placeholder: "Анна" },
+  { key: "owner_phone",  label: T.qOwnerPhone,  type: "phone" },
+  { key: "pet_name",     label: T.qPetName,     type: "text",     required: true, placeholder: "Сем" },
+  { key: "photo_url",    label: T.qPhoto,       sub: T.qPhotoSub, type: "photo" },
+  { key: "breed",        label: T.qBreed,       type: "text",     placeholder: "Pudel / Mix / ..." },
+  { key: "birthday",     label: T.qBirthday,    sub: T.qBirthdaySub, type: "date" },
+  { key: "allergies",    label: T.qAllergies,   sub: T.qAllergiesSub, type: "textarea", placeholder: "Куряче м'ясо, овес..." },
+  { key: "preferred_cut",label: T.qCut,         sub: T.qCutSub,   type: "textarea", placeholder: "Коротко, акуратні лапи..." },
 ];
 
 let qState = {};
@@ -355,7 +392,6 @@ function renderQuestionnaire(step = 0) {
 
   let input;
   if (s.type === "phone") {
-    const saved = qState[s.key] || "";
     const savedCode = qState._phone_code || "+48";
     const savedNum  = qState._phone_num  || "";
     input = `
@@ -460,7 +496,6 @@ window.onCountryChange = () => {
 
 window.onPhoneMask = (e) => {
   let v = e.target.value.replace(/\D/g, "");
-  // групуємо по 3 цифри: 123 456 789
   v = v.slice(0, 12).replace(/(\d{3})(?=\d)/g, "$1 ").trim();
   e.target.value = v;
   qState._phone_num = v;
@@ -564,6 +599,7 @@ function renderOwnerPetCard(pet, showBack = false) {
     </div>
     ${bdayBanner}
     ${nextVisit}
+    ${loyaltyCard(pet.loyalty)}
     ${lastBlock}
     ${pet.allergies ? `
       <div class="card" style="background:var(--warning-bg); color:var(--warning-text);">
@@ -591,6 +627,7 @@ function renderOwnerPetCard(pet, showBack = false) {
   `;
 }
 
+// Базовий visit item (для клієнта — без фото)
 function visitItem(v) {
   const d = fmtVisitDate(v.visit_date);
   return `
@@ -608,6 +645,40 @@ function visitItem(v) {
   `;
 }
 
+// Visit item для грумера — з фото до/після
+function visitItemGroomer(v) {
+  const d = fmtVisitDate(v.visit_date);
+  const photos = (v.photo_before || v.photo_url)
+    ? `<div class="visit-photos">
+        ${v.photo_before ? `<div class="visit-photo-wrap"><span class="photo-lbl">До</span><img src="${v.photo_before}" onclick="openPhotoSheet('${v.photo_before}', 'До')"></div>` : ""}
+        ${v.photo_url    ? `<div class="visit-photo-wrap"><span class="photo-lbl">Після</span><img src="${v.photo_url}" onclick="openPhotoSheet('${v.photo_url}', 'Після')"></div>` : ""}
+       </div>`
+    : "";
+  return `
+    <div class="visit-item" style="flex-wrap:wrap; align-items:flex-start;">
+      <div class="visit-date">
+        <span class="day">${d.day}</span>
+        ${d.month}
+      </div>
+      <div class="visit-info">
+        <div class="visit-service">${v.service || "—"}</div>
+        <div class="visit-meta">${v.cut_style && v.cut_style !== "—" ? v.cut_style : ""}${v.notes ? (v.cut_style ? " · " : "") + v.notes : ""}</div>
+        ${photos}
+      </div>
+      ${v.price ? `<div class="visit-price">${v.price} zł</div>` : ""}
+    </div>
+  `;
+}
+
+window.openPhotoSheet = (src, label) => {
+  openSheet(`
+    <h3>${label}</h3>
+    <div style="text-align:center;">
+      <img src="${src}" style="max-width:100%; border-radius:14px;">
+    </div>
+  `);
+};
+
 // ============================================================================
 // GROOMER FLOW
 // ============================================================================
@@ -616,6 +687,9 @@ let groomerTab = "all";
 let groomerSearch = "";
 
 async function renderGroomer() {
+  if (groomerTab === "schedule") return renderSchedule();
+  if (groomerTab === "analytics") return renderAnalytics();
+
   const pets = await api("/api/pets");
 
   const stats = {
@@ -651,6 +725,8 @@ async function renderGroomer() {
       ${tabBtn("today", T.tabToday)}
       ${tabBtn("birthdays", T.tabBirthdays)}
       ${tabBtn("followup", T.tabFollowup)}
+      ${tabBtn("schedule", T.tabSchedule)}
+      ${tabBtn("analytics", T.tabAnalytics)}
     </div>
 
     <div id="pet-list">
@@ -662,10 +738,10 @@ async function renderGroomer() {
 
   $("#search-input").addEventListener("input", (e) => {
     groomerSearch = e.target.value.toLowerCase();
-    const filtered = filterPets(pets);
-    $("#pet-list").innerHTML = filtered.length === 0
+    const f = filterPets(pets);
+    $("#pet-list").innerHTML = f.length === 0
       ? `<div class="empty"><div class="ic">🔍</div><p>Нічого не знайдено</p></div>`
-      : filtered.map(petCardHTML).join("");
+      : f.map(petCardHTML).join("");
   });
 }
 
@@ -699,9 +775,7 @@ function filterPets(pets) {
 }
 
 function petCardHTML(p) {
-  const photo = p.photo_url
-    ? `<img src="${p.photo_url}">`
-    : dogEmoji(p.breed);
+  const photo = p.photo_url ? `<img src="${p.photo_url}">` : dogEmoji(p.breed);
 
   const chips = [];
   if (p.days_to_birthday !== null && p.days_to_birthday <= 14) {
@@ -716,6 +790,9 @@ function petCardHTML(p) {
     chips.push(`<span class="chip danger">⏰ ${p.weeks_since_last_visit} тиж. без візиту</span>`);
   } else if (p.weeks_since_last_visit !== null) {
     chips.push(`<span class="chip muted">Останній: ${p.weeks_since_last_visit} тиж. тому</span>`);
+  }
+  if (p.loyalty?.milestone_reached) {
+    chips.push(`<span class="chip loyalty-chip">🎁 Знижка ${p.loyalty.milestone_discount}%</span>`);
   }
 
   return `
@@ -737,13 +814,7 @@ window.showPet = async (id) => {
 };
 
 function renderPetDetail(pet) {
-  const photo = pet.photo_url
-    ? `<img src="${pet.photo_url}">`
-    : dogEmoji(pet.breed);
-
-  const tgLink = pet.owner.telegram_id
-    ? `https://t.me/${pet.owner.telegram_id}`
-    : `https://t.me/${window.SALON.groomerTelegram}`;
+  const photo = pet.photo_url ? `<img src="${pet.photo_url}">` : dogEmoji(pet.breed);
 
   app.innerHTML = `
     ${header({ title: pet.name, backFn: "renderGroomer()" })}
@@ -808,10 +879,12 @@ function renderPetDetail(pet) {
         </div>` : ""}
     </div>
 
+    ${loyaltyCard(pet.loyalty)}
+
     <div class="section-title">${T.history} (${pet.visits.length})</div>
     ${pet.visits.length === 0
       ? `<div class="empty"><div class="ic">📋</div><p>Ще немає візитів</p></div>`
-      : pet.visits.map(visitItem).join("")}
+      : pet.visits.map(visitItemGroomer).join("")}
 
     <div class="action-bar">
       <button class="btn ghost" onclick="openAddVisit(${pet.id})">${T.addVisit}</button>
@@ -820,6 +893,179 @@ function renderPetDetail(pet) {
     </div>
   `;
 }
+
+// ── Розклад (вкладка) ────────────────────────────────────────────────────────
+let scheduleDate = isoToday();
+
+async function renderSchedule() {
+  app.innerHTML = `<div class="loading">${T.loading}</div>`;
+
+  const data = await api(`/api/schedule?date=${scheduleDate}`);
+
+  // Стрічка дат: сьогодні ± 3 дні
+  const today = new Date();
+  const dateStrip = Array.from({ length: 7 }, (_, i) => {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() + i - 3);
+    const iso = isoDate(dt);
+    const isActive = iso === scheduleDate;
+    const days = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"];
+    return `
+      <div class="date-chip ${isActive ? "active" : ""}" onclick="setScheduleDate('${iso}')">
+        <div class="dc-day">${days[dt.getDay()]}</div>
+        <div class="dc-num">${dt.getDate()}</div>
+      </div>
+    `;
+  }).join("");
+
+  const groomersHtml = data.groomers.map(g => {
+    const visits = g.visits || [];
+    const visitsHtml = visits.length === 0
+      ? `<div class="schedule-free">Вільний день</div>`
+      : visits.map(v => `
+          <div class="schedule-item" onclick="showPet(${v.pet_id})">
+            <div class="schedule-time">${fmtTime(v.scheduled_for)}</div>
+            <div class="schedule-info">
+              <div class="schedule-pet">${v.pet_name}</div>
+              <div class="schedule-meta">${v.breed || ""}${v.service ? " · " + v.service : ""}</div>
+              ${v.owner_phone ? `<div class="schedule-phone">${v.owner_phone}</div>` : ""}
+            </div>
+          </div>
+        `).join("");
+
+    return `
+      <div class="groomer-block">
+        <div class="groomer-header" style="border-left-color:${g.color};">
+          <span class="groomer-dot" style="background:${g.color};"></span>
+          ${g.name}
+          <span class="groomer-count">${visits.length} запис${visits.length === 1 ? "" : "ів"}</span>
+        </div>
+        ${visitsHtml}
+      </div>
+    `;
+  }).join("");
+
+  app.innerHTML = `
+    ${header({ title: T.tabSchedule, backFn: "goBackToList()" })}
+    <div class="date-strip">${dateStrip}</div>
+    <div style="padding: 4px 14px 6px; font-size:13px; color:var(--text-soft);">
+      ${fmtDateShort(scheduleDate)}
+    </div>
+    ${data.groomers.length === 0
+      ? `<div class="empty"><div class="ic">📅</div><p>Грумерів ще немає</p></div>`
+      : groomersHtml}
+    <div class="tabs" style="margin-top:8px;">
+      ${tabBtn("all", T.tabAll)}
+      ${tabBtn("today", T.tabToday)}
+      ${tabBtn("birthdays", T.tabBirthdays)}
+      ${tabBtn("followup", T.tabFollowup)}
+      ${tabBtn("schedule", T.tabSchedule)}
+      ${tabBtn("analytics", T.tabAnalytics)}
+    </div>
+  `;
+}
+
+window.setScheduleDate = (iso) => {
+  scheduleDate = iso;
+  renderSchedule();
+};
+
+window.goBackToList = () => {
+  groomerTab = "all";
+  renderGroomer();
+};
+
+// ── Аналітика (вкладка) ──────────────────────────────────────────────────────
+let analyticsPeriod = "month";
+
+async function renderAnalytics() {
+  app.innerHTML = `<div class="loading">${T.loading}</div>`;
+  const data = await api(`/api/analytics?period=${analyticsPeriod}`);
+
+  const maxRevenue = Math.max(...(data.revenue_by_week.map(w => w.revenue)), 1);
+
+  const weeksHtml = data.revenue_by_week.length === 0
+    ? `<div style="color:var(--text-soft); font-size:13px; padding:8px 0;">Немає даних за цей період</div>`
+    : data.revenue_by_week.map(w => {
+        const pct = Math.round((w.revenue / maxRevenue) * 100);
+        const dt = new Date(w.week + "T00:00:00");
+        const months = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
+        const label = `${dt.getDate()} ${months[dt.getMonth()]}`;
+        return `
+          <div class="analytic-bar-row">
+            <div class="analytic-bar-label">${label}</div>
+            <div class="analytic-bar-track">
+              <div class="analytic-bar-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="analytic-bar-value">${w.revenue} zł</div>
+          </div>
+        `;
+      }).join("");
+
+  const servicesHtml = data.top_services.length === 0
+    ? `<div style="color:var(--text-soft); font-size:13px;">Немає даних</div>`
+    : data.top_services.map((s, i) => `
+        <div style="display:flex; justify-content:space-between; padding:8px 0;
+                    border-bottom: ${i < data.top_services.length - 1 ? "1px solid var(--border)" : "none"};">
+          <span style="font-size:14px;">${s.service}</span>
+          <span style="font-weight:600; color:var(--primary);">${s.count} разів</span>
+        </div>
+      `).join("");
+
+  app.innerHTML = `
+    ${header({ title: T.tabAnalytics, backFn: "goBackToList()" })}
+
+    <div style="display:flex; gap:8px; padding: 0 14px 10px;">
+      <button class="btn ${analyticsPeriod === "month" ? "" : "outline"} small"
+              onclick="setAnalyticsPeriod('month')">Цей місяць</button>
+      <button class="btn ${analyticsPeriod === "last_month" ? "" : "outline"} small"
+              onclick="setAnalyticsPeriod('last_month')">Минулий місяць</button>
+    </div>
+
+    <div class="stats" style="flex-wrap:wrap;">
+      <div class="stat">
+        <div class="label">Дохід</div>
+        <div class="value">${data.revenue_total} zł</div>
+      </div>
+      <div class="stat">
+        <div class="label">Візитів</div>
+        <div class="value">${data.visits_count}</div>
+      </div>
+      <div class="stat">
+        <div class="label">Середній чек</div>
+        <div class="value">${Math.round(data.avg_per_visit)} zł</div>
+      </div>
+      <div class="stat">
+        <div class="label">Нових клієнтів</div>
+        <div class="value">${data.new_clients}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="padding:0 0 10px;">Дохід по тижнях</div>
+      ${weeksHtml}
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="padding:0 0 10px;">Топ послуги</div>
+      ${servicesHtml}
+    </div>
+
+    <div class="tabs" style="margin-top:8px;">
+      ${tabBtn("all", T.tabAll)}
+      ${tabBtn("today", T.tabToday)}
+      ${tabBtn("birthdays", T.tabBirthdays)}
+      ${tabBtn("followup", T.tabFollowup)}
+      ${tabBtn("schedule", T.tabSchedule)}
+      ${tabBtn("analytics", T.tabAnalytics)}
+    </div>
+  `;
+}
+
+window.setAnalyticsPeriod = (p) => {
+  analyticsPeriod = p;
+  renderAnalytics();
+};
 
 // ── Sheets ──────────────────────────────────────────────────────────────────
 function openSheet(html) {
@@ -849,7 +1095,23 @@ function closeSheet() {
 window.closeSheet = closeSheet;
 
 // ── Add visit ──────────────────────────────────────────────────────────────
-window.openAddVisit = (petId) => {
+window.openAddVisit = async (petId) => {
+  let groomerSelect = "";
+  try {
+    const groomers = await api("/api/groomers");
+    if (groomers.length > 0) {
+      groomerSelect = `
+        <div class="row" style="margin-bottom:12px;">
+          <label>${T.groomerLabel}</label>
+          <select id="v-groomer">
+            <option value="">— Не призначено —</option>
+            ${groomers.map(g => `<option value="${g.id}">${g.name}</option>`).join("")}
+          </select>
+        </div>
+      `;
+    }
+  } catch (e) { /* якщо не завантажились — пропускаємо */ }
+
   openSheet(`
     <h3>${T.addVisitTitle}</h3>
     <div class="row" style="margin-bottom:12px;">
@@ -868,6 +1130,15 @@ window.openAddVisit = (petId) => {
       <label>${T.price}</label>
       <input type="number" id="v-price" placeholder="180">
     </div>
+    ${groomerSelect}
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.photoBefore}</label>
+      <input type="text" id="v-photo-before" placeholder="/static/img/sample_before.svg">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.photoAfter}</label>
+      <input type="text" id="v-photo-url" placeholder="/static/img/sample_after.svg">
+    </div>
     <div class="row" style="margin-bottom:12px;">
       <label>${T.visitNotes}</label>
       <textarea id="v-notes" placeholder=""></textarea>
@@ -882,7 +1153,9 @@ window.openAddVisit = (petId) => {
 
 window.saveVisit = async (petId) => {
   try {
-    await api(`/api/pets/${petId}/visits`, {
+    const groomerEl = $("#v-groomer");
+    const groomer_id = groomerEl?.value ? parseInt(groomerEl.value) : null;
+    const pet = await api(`/api/pets/${petId}/visits`, {
       method: "POST",
       body: {
         visit_date: $("#v-date").value,
@@ -890,11 +1163,19 @@ window.saveVisit = async (petId) => {
         cut_style: $("#v-cut").value,
         price: parseFloat($("#v-price").value) || 0,
         notes: $("#v-notes").value,
+        photo_before: $("#v-photo-before")?.value || "",
+        photo_url: $("#v-photo-url")?.value || "",
+        groomer_id,
         schedule_followup: $("#v-followup").checked,
       },
     });
     closeSheet();
-    toast(T.saved);
+    const loy = pet.loyalty;
+    if (loy?.milestone_reached) {
+      toast(`🎁 Знижка ${loy.milestone_discount}% — ця стрижка зі знижкою!`, 3500);
+    } else {
+      toast(T.saved);
+    }
     showPet(petId);
   } catch (e) {
     toast("Помилка: " + e.message);
@@ -902,9 +1183,26 @@ window.saveVisit = async (petId) => {
 };
 
 // ── Schedule next visit ────────────────────────────────────────────────────
-window.openSchedule = (petId) => {
+window.openSchedule = async (petId) => {
   const tomorrow = new Date(Date.now() + 86400000);
-  const iso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,"0")}-${String(tomorrow.getDate()).padStart(2,"0")}`;
+  const iso = isoDate(tomorrow);
+
+  let groomerSelect = "";
+  try {
+    const groomers = await api("/api/groomers");
+    if (groomers.length > 0) {
+      groomerSelect = `
+        <div class="row" style="margin-bottom:12px;">
+          <label>${T.groomerLabel}</label>
+          <select id="s-groomer">
+            <option value="">— Не призначено —</option>
+            ${groomers.map(g => `<option value="${g.id}">${g.name}</option>`).join("")}
+          </select>
+        </div>
+      `;
+    }
+  } catch (e) { /* ігноруємо */ }
+
   openSheet(`
     <h3>${T.scheduleTitle}</h3>
     <div class="row" style="margin-bottom:12px;">
@@ -915,20 +1213,23 @@ window.openSchedule = (petId) => {
       <label>Час</label>
       <input type="time" id="s-time" value="15:00">
     </div>
-    <div class="row" style="margin-bottom:14px;">
+    <div class="row" style="margin-bottom:12px;">
       <label>${T.service}</label>
       <input type="text" id="s-service" value="Повне грумування">
     </div>
+    ${groomerSelect}
     <button class="btn" onclick="saveSchedule(${petId})">${T.save}</button>
   `);
 };
 
 window.saveSchedule = async (petId) => {
   try {
+    const groomerEl = $("#s-groomer");
+    const groomer_id = groomerEl?.value ? parseInt(groomerEl.value) : null;
     const dt = $("#s-date").value + " " + $("#s-time").value;
     await api(`/api/pets/${petId}/schedule`, {
       method: "POST",
-      body: { visit_date: dt, service: $("#s-service").value },
+      body: { visit_date: dt, service: $("#s-service").value, groomer_id },
     });
     closeSheet();
     toast("Запис заплановано");
@@ -992,21 +1293,18 @@ function escapeHtml(s) {
 window.renderGroomer = renderGroomer;
 window.renderOwnerDemoLanding = renderOwnerDemoLanding;
 
-// ── Клавіатура: підіймаємо btn-row разом з нею ──────────────────────────────
+// ── Клавіатура: підіймаємо btn-row ──────────────────────────────────────────
 (function initKeyboardShift() {
   const vv = window.visualViewport;
   if (!vv) return;
-
   function shift() {
     const row = document.querySelector(".btn-row");
     if (!row) return;
-    // Висота, на яку клавіатура перекриває viewport
     const keyboardHeight = window.innerHeight - vv.height - vv.pageTop;
     row.style.transform = keyboardHeight > 50
       ? `translateY(-${keyboardHeight}px)`
       : "";
   }
-
   vv.addEventListener("resize", shift);
   vv.addEventListener("scroll", shift);
 })();

@@ -5,20 +5,17 @@ Groomer Mini App — Demo
 Запуск:  python demo.py
 Mini App у браузері: http://localhost:5050/app?role=groomer
                     http://localhost:5050/app?role=owner
-
-Якщо в .env заданий TELEGRAM_BOT_TOKEN — додатково підіймається бот
-з кнопкою Mini App та щоденним планувальником нагадувань.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import traceback
+from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-
-import traceback
 
 import aiosqlite
 import uvicorn
@@ -43,6 +40,12 @@ GROOMER_TELEGRAM = os.getenv("GROOMER_TELEGRAM", "anna_groomer")
 
 # ── Схема ────────────────────────────────────────────────────────────────────
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS groomers (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT NOT NULL,
+    color TEXT DEFAULT '#1f7a4d'
+);
+
 CREATE TABLE IF NOT EXISTS owners (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     telegram_id  INTEGER UNIQUE,
@@ -67,20 +70,23 @@ CREATE TABLE IF NOT EXISTS pets (
 );
 
 CREATE TABLE IF NOT EXISTS visits (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    pet_id      INTEGER REFERENCES pets(id) ON DELETE CASCADE,
-    visit_date  TEXT NOT NULL,
-    service     TEXT,
-    cut_style   TEXT,
-    price       REAL,
-    notes       TEXT,
-    photo_url   TEXT,
-    created_at  TEXT DEFAULT (datetime('now','localtime'))
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    pet_id       INTEGER REFERENCES pets(id) ON DELETE CASCADE,
+    groomer_id   INTEGER REFERENCES groomers(id),
+    visit_date   TEXT NOT NULL,
+    service      TEXT,
+    cut_style    TEXT,
+    price        REAL,
+    notes        TEXT,
+    photo_before TEXT,
+    photo_url    TEXT,
+    created_at   TEXT DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     pet_id        INTEGER REFERENCES pets(id) ON DELETE CASCADE,
+    groomer_id    INTEGER REFERENCES groomers(id),
     kind          TEXT NOT NULL,
     scheduled_for TEXT NOT NULL,
     sent_at       TEXT,
@@ -99,6 +105,16 @@ async def db():
 async def db_init():
     async with aiosqlite.connect(DB_FILE) as conn:
         await conn.executescript(SCHEMA)
+        # Safe migrations for previously created databases
+        for sql in [
+            "ALTER TABLE visits ADD COLUMN photo_before TEXT",
+            "ALTER TABLE visits ADD COLUMN groomer_id INTEGER",
+            "ALTER TABLE reminders ADD COLUMN groomer_id INTEGER",
+        ]:
+            try:
+                await conn.execute(sql)
+            except Exception:
+                pass
         await conn.commit()
 
 
@@ -136,6 +152,27 @@ def days_until_birthday(birthday: str | None) -> int | None:
     return (this_year - today).days
 
 
+def loyalty_info(visit_count: int) -> dict:
+    """Розраховує статус програми лояльності. Мілстоуни: 5-та і 10-та стрижки."""
+    if visit_count == 0:
+        return {"visit_count": 0, "cycle_position": 0, "next_milestone": 5,
+                "visits_to_milestone": 5, "milestone_reached": False, "milestone_discount": 10}
+    cycle = visit_count % 10
+    if cycle == 0:
+        return {"visit_count": visit_count, "cycle_position": 10, "next_milestone": visit_count,
+                "visits_to_milestone": 0, "milestone_reached": True, "milestone_discount": 15}
+    if cycle == 5:
+        return {"visit_count": visit_count, "cycle_position": 5, "next_milestone": visit_count,
+                "visits_to_milestone": 0, "milestone_reached": True, "milestone_discount": 10}
+    if cycle < 5:
+        return {"visit_count": visit_count, "cycle_position": cycle,
+                "next_milestone": visit_count + (5 - cycle), "visits_to_milestone": 5 - cycle,
+                "milestone_reached": False, "milestone_discount": 10}
+    return {"visit_count": visit_count, "cycle_position": cycle,
+            "next_milestone": visit_count + (10 - cycle), "visits_to_milestone": 10 - cycle,
+            "milestone_reached": False, "milestone_discount": 15}
+
+
 async def pet_full(conn, pet_id: int) -> dict[str, Any] | None:
     pet_row = await (await conn.execute(
         "SELECT * FROM pets WHERE id=?", (pet_id,)
@@ -165,18 +202,19 @@ async def pet_full(conn, pet_id: int) -> dict[str, Any] | None:
         pet["weeks_since_last_visit"] = (date.today() - last_dt).days // 7
     else:
         pet["weeks_since_last_visit"] = None
+    pet["visit_count"] = len(visits)
+    pet["loyalty"] = loyalty_info(len(visits))
     return pet
 
 
 # ── FastAPI ──────────────────────────────────────────────────────────────────
 scheduler = AsyncIOScheduler()
-bot_app = None  # заповнюється у lifespan, якщо є токен
+bot_app = None
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await db_init()
-    # сід даних, якщо БД порожня
     async with aiosqlite.connect(DB_FILE) as conn:
         cur = await conn.execute("SELECT COUNT(*) FROM pets")
         count = (await cur.fetchone())[0]
@@ -185,16 +223,14 @@ async def lifespan(_app: FastAPI):
         await seed_data(DB_FILE)
         print("✓ Сід-дані додані")
 
-    # бот (опційно)
     global bot_app
     if BOT_TOKEN:
         bot_app = await start_bot()
         print("✓ Telegram-бот запущено")
     else:
         print("ℹ Telegram-бот не налаштовано (порожній TELEGRAM_BOT_TOKEN)")
-        print("  Демо повноцінно працює в браузері — нагадування показуються у попередньому перегляді.")
+        print("  Демо повноцінно працює в браузері.")
 
-    # планувальник нагадувань
     scheduler.add_job(dispatch_reminders, "cron", hour=9, minute=0, id="daily_reminders")
     scheduler.start()
     print(f"✓ Планувальник запущено (щодня о 09:00)")
@@ -259,9 +295,18 @@ async def api_config():
     }
 
 
+@app.get("/api/groomers")
+async def api_groomers():
+    conn = await db()
+    try:
+        rows = await (await conn.execute("SELECT * FROM groomers ORDER BY id")).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
 @app.get("/api/pets")
 async def api_pets():
-    """Список усіх собак з власниками — для дашборду грумера."""
     conn = await db()
     try:
         rows = await (await conn.execute("""
@@ -290,6 +335,11 @@ async def api_pets():
                 "ORDER BY scheduled_for ASC LIMIT 1", (p["id"],)
             )).fetchone())
             p["next_visit"] = next_v
+            cnt = await (await conn.execute(
+                "SELECT COUNT(*) FROM visits WHERE pet_id=?", (p["id"],)
+            )).fetchone()
+            p["visit_count"] = cnt[0] if cnt else 0
+            p["loyalty"] = loyalty_info(p["visit_count"])
             pets.append(p)
         return pets
     finally:
@@ -310,7 +360,6 @@ async def api_pet(pet_id: int):
 
 @app.get("/api/owner/{telegram_id}")
 async def api_owner(telegram_id: int):
-    """Знаходить власника за telegram_id (для режиму клієнта в боті)."""
     conn = await db()
     try:
         owner = row_to_dict(await (await conn.execute(
@@ -331,6 +380,112 @@ async def api_owner(telegram_id: int):
         await conn.close()
 
 
+@app.get("/api/schedule")
+async def api_schedule_view(date: str = ""):
+    target = date if date else datetime.now().date().isoformat()
+    conn = await db()
+    try:
+        groomers = [dict(r) for r in await (await conn.execute(
+            "SELECT * FROM groomers ORDER BY id"
+        )).fetchall()]
+        rows = await (await conn.execute("""
+            SELECT r.id, r.pet_id, r.scheduled_for, r.payload AS service,
+                   r.groomer_id,
+                   p.name AS pet_name, p.breed, p.photo_url,
+                   o.name AS owner_name, o.phone AS owner_phone
+            FROM reminders r
+            JOIN pets p ON p.id = r.pet_id
+            JOIN owners o ON o.id = p.owner_id
+            WHERE r.kind='visit' AND r.sent_at IS NULL
+              AND date(r.scheduled_for) = ?
+            ORDER BY r.scheduled_for
+        """, (target,))).fetchall()
+
+        visits_by_groomer: dict[int, list] = {g["id"]: [] for g in groomers}
+        unassigned = []
+        for r in rows:
+            rv = dict(r)
+            gid = rv.get("groomer_id")
+            if gid and gid in visits_by_groomer:
+                visits_by_groomer[gid].append(rv)
+            else:
+                unassigned.append(rv)
+
+        result = []
+        for g in groomers:
+            gc = dict(g)
+            gc["visits"] = visits_by_groomer[g["id"]]
+            result.append(gc)
+
+        return {"date": target, "groomers": result, "unassigned": unassigned}
+    finally:
+        await conn.close()
+
+
+@app.get("/api/analytics")
+async def api_analytics(period: str = "month"):
+    today = date.today()
+    if period == "month":
+        start = today.replace(day=1)
+        if today.month == 12:
+            end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+    else:
+        first_this = today.replace(day=1)
+        end = first_this - timedelta(days=1)
+        start = end.replace(day=1)
+
+    conn = await db()
+    try:
+        visits_rows = await (await conn.execute("""
+            SELECT v.visit_date, v.service, v.price, p.owner_id, o.created_at AS owner_created
+            FROM visits v
+            JOIN pets p ON p.id = v.pet_id
+            JOIN owners o ON o.id = p.owner_id
+            WHERE v.visit_date >= ? AND v.visit_date <= ?
+        """, (start.isoformat(), end.isoformat()))).fetchall()
+
+        visits_list = [dict(r) for r in visits_rows]
+        revenue = sum(v.get("price") or 0 for v in visits_list)
+        count = len(visits_list)
+        avg = revenue / count if count else 0
+
+        new_owners_row = await (await conn.execute("""
+            SELECT COUNT(DISTINCT id) FROM owners
+            WHERE date(created_at) >= ? AND date(created_at) <= ?
+        """, (start.isoformat(), end.isoformat()))).fetchone()
+        new_clients = new_owners_row[0] if new_owners_row else 0
+
+        svc_counter = Counter(v.get("service", "") for v in visits_list if v.get("service"))
+        top_services = [{"service": s, "count": c} for s, c in svc_counter.most_common(3)]
+
+        weekly: dict[str, float] = defaultdict(float)
+        for v in visits_list:
+            dt = datetime.strptime(v["visit_date"], "%Y-%m-%d").date()
+            week_start = dt - timedelta(days=dt.weekday())
+            weekly[week_start.isoformat()] += v.get("price") or 0
+
+        revenue_by_week = [
+            {"week": w, "revenue": round(r, 2)}
+            for w, r in sorted(weekly.items())
+        ]
+
+        return {
+            "period": period,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "revenue_total": round(revenue, 2),
+            "visits_count": count,
+            "avg_per_visit": round(avg, 2),
+            "new_clients": new_clients,
+            "top_services": top_services,
+            "revenue_by_week": revenue_by_week,
+        }
+    finally:
+        await conn.close()
+
+
 class PetIn(BaseModel):
     owner_name: str
     owner_phone: str | None = ""
@@ -346,7 +501,6 @@ class PetIn(BaseModel):
 
 @app.post("/api/pets")
 async def api_create_pet(body: PetIn):
-    """Створення нової картки з анкети клієнта."""
     conn = await db()
     try:
         owner_id = None
@@ -410,11 +564,14 @@ async def api_update_pet(pet_id: int, body: PetIn):
 
 
 class VisitIn(BaseModel):
-    visit_date: str  # YYYY-MM-DD
+    visit_date: str
     service: str
     cut_style: str | None = ""
     price: float | None = 0
     notes: str | None = ""
+    photo_before: str | None = ""
+    photo_url: str | None = ""
+    groomer_id: int | None = None
     schedule_followup: bool = True
 
 
@@ -428,9 +585,14 @@ async def api_add_visit(pet_id: int, body: VisitIn):
         if not pet:
             raise HTTPException(404, "Pet not found")
         await conn.execute("""
-            INSERT INTO visits (pet_id, visit_date, service, cut_style, price, notes)
-            VALUES (?,?,?,?,?,?)
-        """, (pet_id, body.visit_date, body.service, body.cut_style, body.price, body.notes))
+            INSERT INTO visits
+              (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (
+            pet_id, body.groomer_id, body.visit_date, body.service,
+            body.cut_style, body.price, body.notes,
+            body.photo_before or None, body.photo_url or None,
+        ))
         if body.schedule_followup:
             visit_dt = datetime.strptime(body.visit_date, "%Y-%m-%d").date()
             followup = visit_dt + timedelta(weeks=pet.get("followup_weeks") or 6)
@@ -445,13 +607,13 @@ async def api_add_visit(pet_id: int, body: VisitIn):
 
 
 class NextVisitIn(BaseModel):
-    visit_date: str  # YYYY-MM-DD HH:MM
+    visit_date: str
     service: str | None = "Стрижка"
+    groomer_id: int | None = None
 
 
 @app.post("/api/pets/{pet_id}/schedule")
 async def api_schedule(pet_id: int, body: NextVisitIn):
-    """Запланувати наступний візит → створює reminder на день до."""
     conn = await db()
     try:
         pet = row_to_dict(await (await conn.execute(
@@ -463,15 +625,14 @@ async def api_schedule(pet_id: int, body: NextVisitIn):
             visit_dt = datetime.strptime(body.visit_date, "%Y-%m-%d %H:%M")
         except ValueError:
             visit_dt = datetime.strptime(body.visit_date, "%Y-%m-%d")
-        # видалимо попередні незавершені нагадування цього типу
         await conn.execute(
             "DELETE FROM reminders WHERE pet_id=? AND kind='visit' AND sent_at IS NULL",
             (pet_id,),
         )
         await conn.execute("""
-            INSERT INTO reminders (pet_id, kind, scheduled_for, payload)
-            VALUES (?, 'visit', ?, ?)
-        """, (pet_id, visit_dt.isoformat(sep=" "), body.service))
+            INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id)
+            VALUES (?, 'visit', ?, ?, ?)
+        """, (pet_id, visit_dt.isoformat(sep=" "), body.service, body.groomer_id))
         await conn.commit()
         return await pet_full(conn, pet_id)
     finally:
@@ -480,7 +641,6 @@ async def api_schedule(pet_id: int, body: NextVisitIn):
 
 @app.get("/api/reminders/preview/{pet_id}/{kind}")
 async def api_preview_reminder(pet_id: int, kind: str):
-    """Текст нагадування — для попереднього перегляду в UI."""
     conn = await db()
     try:
         pet = await pet_full(conn, pet_id)
@@ -494,7 +654,6 @@ async def api_preview_reminder(pet_id: int, kind: str):
 
 @app.post("/api/reminders/send/{pet_id}/{kind}")
 async def api_send_reminder(pet_id: int, kind: str):
-    """Надіслати нагадування одразу. У демо-режимі — просто повертає текст."""
     conn = await db()
     try:
         pet = await pet_full(conn, pet_id)
@@ -558,12 +717,10 @@ def render_reminder(pet: dict, kind: str) -> str:
 
 # ── Планувальник ─────────────────────────────────────────────────────────────
 async def dispatch_reminders():
-    """Запускається щодня о 09:00 — розсилає всі сьогоднішні нагадування."""
     today = date.today()
     tomorrow = today + timedelta(days=1)
     conn = await db()
     try:
-        # 1) Візити завтра
         rows = await (await conn.execute("""
             SELECT * FROM reminders
             WHERE kind='visit' AND sent_at IS NULL
@@ -572,7 +729,6 @@ async def dispatch_reminders():
         for r in rows:
             await _send_due_reminder(conn, dict(r))
 
-        # 2) Дні народження сьогодні
         pets = await (await conn.execute(
             "SELECT * FROM pets WHERE birthday IS NOT NULL"
         )).fetchall()
@@ -585,7 +741,6 @@ async def dispatch_reminders():
             except ValueError:
                 continue
             if (bd_date.month, bd_date.day) == (today.month, today.day):
-                # перевіримо чи не слали вже сьогодні
                 exists = await (await conn.execute("""
                     SELECT 1 FROM reminders
                     WHERE pet_id=? AND kind='birthday'
@@ -601,7 +756,6 @@ async def dispatch_reminders():
                     "id": cur.lastrowid, "pet_id": p["id"], "kind": "birthday"
                 })
 
-        # 3) Follow-up — за датою у таблиці
         rows = await (await conn.execute("""
             SELECT * FROM reminders
             WHERE kind='followup' AND sent_at IS NULL
@@ -661,18 +815,14 @@ async def start_bot():
             return
         await msg.answer(
             f"Привіт! Ласкаво просимо до *{SALON_NAME}* 🐶\n\n"
-            f"Натисніть кнопку нижче, щоб заповнити картку улюбленця "
-            f"або переглянути попередні візити.",
+            f"Натисніть кнопку нижче, щоб заповнити картку улюбленця.",
             parse_mode="Markdown",
             reply_markup=app_kb("owner"),
         )
 
     @dp.message(Command("groomer"))
     async def on_groomer(msg: Message):
-        await msg.answer(
-            "📋 Панель грумера",
-            reply_markup=app_kb("groomer"),
-        )
+        await msg.answer("📋 Панель грумера", reply_markup=app_kb("groomer"))
 
     @dp.message(F.text)
     async def on_text(msg: Message):

@@ -374,3 +374,120 @@ input[type="checkbox"] {
   width: 40px; height: 4px; background: var(--border);
   border-radius: 2px; margin: 0 auto 14px;
 }
+
+/* ── Картка лояльності ── */
+.loyalty-card { text-align: center; }
+.loyalty-title {
+  font-size: 12px; font-weight: 600; color: var(--text-soft);
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;
+}
+.loyalty-paws {
+  display: flex; justify-content: center; gap: 4px;
+  margin-bottom: 10px;
+}
+.paw-icon {
+  font-size: 20px; opacity: 0.2;
+  transition: opacity .2s;
+}
+.paw-icon.filled { opacity: 1; }
+.paw-icon.milestone {
+  position: relative;
+}
+.paw-icon.milestone::after {
+  content: "";
+  position: absolute; bottom: -3px; left: 50%; transform: translateX(-50%);
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+.loyalty-status {
+  font-size: 13px; color: var(--text-soft);
+}
+.loyalty-milestone {
+  font-size: 14px; font-weight: 700; color: var(--primary);
+  background: var(--primary-soft); border-radius: 10px; padding: 8px 14px;
+  display: inline-block;
+}
+.loyalty-chip { background: #fff4e0 !important; color: #92400e !important; }
+
+/* ── Фото до/після у візитах ── */
+.visit-photos {
+  display: flex; gap: 8px; margin-top: 8px;
+}
+.visit-photo-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.visit-photo-wrap img {
+  width: 64px; height: 64px; border-radius: 10px; object-fit: cover; cursor: pointer;
+}
+.photo-lbl {
+  font-size: 10px; color: var(--text-soft); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+
+/* ── Розклад (вкладка) ── */
+.date-strip {
+  display: flex; gap: 6px; overflow-x: auto; padding: 8px 14px 10px;
+  scrollbar-width: none;
+}
+.date-strip::-webkit-scrollbar { display: none; }
+.date-chip {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+  padding: 8px 10px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  cursor: pointer; min-width: 44px;
+}
+.date-chip.active { background: var(--primary); color: white; border-color: var(--primary); }
+.dc-day { font-size: 11px; opacity: 0.7; }
+.dc-num { font-size: 16px; font-weight: 700; }
+
+.groomer-block { margin: 8px 14px; }
+.groomer-header {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 14px;
+  padding: 10px 14px; border-radius: 14px 14px 0 0;
+  background: var(--surface); border-left: 4px solid var(--primary);
+  box-shadow: var(--shadow);
+}
+.groomer-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.groomer-count {
+  margin-left: auto; font-size: 12px; color: var(--text-soft); font-weight: 400;
+}
+.schedule-item {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: var(--surface); padding: 10px 14px;
+  border-top: 1px solid var(--border); cursor: pointer;
+}
+.schedule-item:last-child { border-radius: 0 0 14px 14px; }
+.schedule-time {
+  font-size: 13px; font-weight: 700; color: var(--primary);
+  min-width: 40px; padding-top: 1px;
+}
+.schedule-info { flex: 1; }
+.schedule-pet { font-weight: 600; font-size: 14px; }
+.schedule-meta { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+.schedule-phone { font-size: 12px; color: var(--primary); margin-top: 2px; }
+.schedule-free {
+  background: var(--surface); padding: 12px 14px;
+  border-top: 1px solid var(--border); border-radius: 0 0 14px 14px;
+  font-size: 13px; color: var(--text-soft);
+}
+
+/* ── Аналітика (вкладка) ── */
+.analytic-bar-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.analytic-bar-label {
+  font-size: 12px; color: var(--text-soft); min-width: 52px;
+}
+.analytic-bar-track {
+  flex: 1; height: 10px; border-radius: 5px; background: var(--border);
+  overflow: hidden;
+}
+.analytic-bar-fill {
+  height: 100%; background: var(--primary); border-radius: 5px;
+  transition: width .4s ease;
+}
+.analytic-bar-value {
+  font-size: 12px; font-weight: 600; color: var(--primary); min-width: 52px; text-align: right;
+}
