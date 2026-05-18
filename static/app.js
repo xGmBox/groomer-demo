@@ -1,0 +1,1017 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Groomer Mini App — клієнтський JS
+   Один SPA-роутер на дві ролі: owner | groomer
+   ────────────────────────────────────────────────────────────────────────── */
+
+const T = {
+  // загальне
+  back: "←",
+  loading: "Завантаження…",
+  save: "Зберегти",
+  saved: "Збережено",
+  cancel: "Скасувати",
+  next: "Далі",
+  skip: "Пропустити",
+  done: "Готово",
+
+  // role
+  ownerRole: "Клієнт",
+  groomerRole: "Грумер",
+
+  // owner — welcome
+  welcomeTitle: "Ласкаво просимо! 🐾",
+  welcomeSub:
+    "Заповніть коротку анкету, щоб ми пам'ятали все про вашого улюбленця — алергії, улюблений тип стрижки та день народження.",
+  welcomeStart: "Заповнити картку",
+
+  // owner — pet view
+  myPet: "Мій улюбленець",
+  nextVisitTitle: "Наступний візит",
+  noNextVisit: "Поки не заплановано — ми надішлемо нагадування, коли запис буде.",
+  lastVisit: "Останній візит",
+  noVisits: "Це буде ваш перший візит",
+  editInfo: "Редагувати інформацію",
+  visitHistory: "Історія візитів",
+  birthdaySoon: "День народження",
+  birthdayDays: (d) => `за ${d} ${plural(d, "день", "дні", "днів")}`,
+
+  // groomer
+  dashboard: "Дашборд",
+  today: "Сьогодні",
+  birthdays: "ДН тижня",
+  search: "Пошук за іменем собаки або власника…",
+  tabAll: "Усі",
+  tabToday: "Сьогодні",
+  tabBirthdays: "Дні народження",
+  tabFollowup: "Час нагадати",
+
+  // pet detail (groomer)
+  owner: "Власник",
+  writeTelegram: "Написати в Telegram",
+  call: "Зателефонувати",
+  allergies: "Алергії",
+  preferredCut: "Улюблена стрижка",
+  notes: "Нотатки грумера",
+  history: "Історія візитів",
+  addVisit: "+ Додати візит",
+  scheduleNext: "📅 Запланувати",
+  sendReminder: "📨 Нагадування",
+
+  // sheets
+  addVisitTitle: "Додати візит",
+  visitDate: "Дата візиту",
+  service: "Послуга",
+  cutStyle: "Тип стрижки",
+  price: "Ціна, zł",
+  visitNotes: "Нотатки",
+  scheduleFollowup: "Запланувати наступний візит через 6 тижнів",
+
+  scheduleTitle: "Запланувати наступний візит",
+  scheduleDate: "Дата і час",
+
+  reminderTitle: "Нагадування",
+  reminderVisit: "За день до візиту",
+  reminderBirthday: "На день народження",
+  reminderFollowup: "Час на нову стрижку",
+  reminderSend: "Надіслати в Telegram",
+  reminderPreviewLabel: "Так клієнт побачить це повідомлення:",
+  reminderSent: "Надіслано в Telegram ✓",
+  reminderDemo: "Демо-режим: повідомлення показане лише в превʼю",
+
+  // questionnaire labels
+  qOwnerName: "Як вас звати?",
+  qOwnerPhone: "Ваш телефон",
+  qPetName: "Як звати собачку?",
+  qPhoto: "Фото улюбленця",
+  qPhotoSub: "Можна пропустити — додасте пізніше",
+  qBreed: "Яка порода?",
+  qBirthday: "Дата народження",
+  qBirthdaySub: "Щоб ми могли привітати у її/його день 🎂",
+  qAllergies: "Алергії або особливості здоров'я?",
+  qAllergiesSub: "Якщо немає — пропустіть цей крок",
+  qCut: "Улюблений тип стрижки",
+  qCutSub: "Наприклад: «коротка, лапи акуратно» або «природна, мінімум»",
+  qFinishTitle: "Готово! 🎉",
+  qFinishSub: "Картка створена. Ми надішлемо нагадування за день до візиту.",
+  qFinishContinue: "Перейти до картки",
+};
+
+function plural(n, one, few, many) {
+  n = Math.abs(n) % 100;
+  const n1 = n % 10;
+  if (n > 10 && n < 20) return many;
+  if (n1 > 1 && n1 < 5) return few;
+  if (n1 === 1) return one;
+  return many;
+}
+
+const $ = (sel, el = document) => el.querySelector(sel);
+const app = $("#app");
+
+// ── Telegram WebApp init ────────────────────────────────────────────────────
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  try { tg.expand(); } catch (e) {}
+}
+const tgUser = tg?.initDataUnsafe?.user;
+
+// ── Стан ────────────────────────────────────────────────────────────────────
+const params = new URLSearchParams(location.search);
+let role = params.get("role") || "owner";
+let forceNew = params.get("new") === "1";
+
+// ── Утиліти ─────────────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+function toast(msg, ms = 2200) {
+  let el = $(".toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), ms);
+}
+
+function dogEmoji(breed) {
+  const b = (breed || "").toLowerCase();
+  if (b.includes("pudel") || b.includes("пудел")) return "🐩";
+  if (b.includes("shiba") || b.includes("шиба")) return "🦊";
+  if (b.includes("ши тсу") || b.includes("shih")) return "🐕‍🦺";
+  return "🐶";
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("T")[0].split(" ")[0].split("-");
+  return `${d}.${m}.${y}`;
+}
+
+function fmtVisitDate(iso) {
+  const dt = new Date(iso + "T00:00:00");
+  const months = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
+  return { day: dt.getDate(), month: months[dt.getMonth()] };
+}
+
+function fmtNextVisit(iso) {
+  if (!iso) return "";
+  const dt = new Date(iso.replace(" ", "T"));
+  const months = ["січня","лютого","березня","квітня","травня","червня",
+                  "липня","серпня","вересня","жовтня","листопада","грудня"];
+  const hh = String(dt.getHours()).padStart(2, "0");
+  const mm = String(dt.getMinutes()).padStart(2, "0");
+  return `${dt.getDate()} ${months[dt.getMonth()]}, ${hh}:${mm}`;
+}
+
+function isoToday() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+}
+
+function roleToggleBtn() {
+  const other = role === "owner" ? "groomer" : "owner";
+  const label = role === "owner" ? T.groomerRole : T.ownerRole;
+  return `<button class="role-toggle" onclick="switchRole('${other}')">↔ ${label}</button>`;
+}
+
+window.switchRole = (r) => {
+  role = r;
+  const u = new URL(location.href);
+  u.searchParams.set("role", r);
+  u.searchParams.delete("new");
+  history.replaceState({}, "", u);
+  render();
+};
+
+// ── Header ──────────────────────────────────────────────────────────────────
+function header({ title, backFn = "" } = {}) {
+  return `
+    <div class="header">
+      ${backFn ? `<button class="back" onclick="${backFn}">←</button>` : ""}
+      <h1>${title}</h1>
+      ${roleToggleBtn()}
+    </div>
+  `;
+}
+
+// ── РОУТЕР ──────────────────────────────────────────────────────────────────
+async function render() {
+  app.innerHTML = `<div class="loading">${T.loading}</div>`;
+
+  if (role === "owner") {
+    await renderOwner();
+  } else {
+    await renderGroomer();
+  }
+}
+
+// ============================================================================
+// OWNER FLOW
+// ============================================================================
+
+async function renderOwner() {
+  if (forceNew) {
+    return renderQuestionnaire();
+  }
+
+  // В реальному Telegram — знаходимо клієнта за tgUser.id
+  if (tgUser?.id) {
+    try {
+      const data = await api(`/api/owner/${tgUser.id}`);
+      if (!data.owner || data.pets.length === 0) {
+        return renderWelcome();
+      }
+      return renderOwnerPetCard(data.pets[0]);
+    } catch (e) {
+      return renderWelcome();
+    }
+  }
+
+  // Браузерне демо — показуємо лендінг з двома сценаріями
+  return renderOwnerDemoLanding();
+}
+
+function renderOwnerDemoLanding() {
+  app.innerHTML = `
+    ${header({ title: window.SALON.name })}
+    <div class="hero" style="text-align:center;">
+      <span class="paw">🐾</span>
+      <h2>Демо для клієнта</h2>
+      <p style="opacity:0.9;">Оберіть сценарій, щоб побачити шлях клієнта</p>
+    </div>
+
+    <div style="padding: 0 14px; display:flex; flex-direction:column; gap:12px; margin-top:4px;">
+
+      <div class="card" style="cursor:pointer; padding:18px;" onclick="renderWelcome()">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="width:48px; height:48px; border-radius:16px; background:var(--primary-soft);
+                      display:grid; place-items:center; font-size:24px; flex-shrink:0;">🆕</div>
+          <div>
+            <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Перший раз у салоні</div>
+            <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
+              Клієнт відкриває Mini App вперше → вітальний екран → анкета (8 кроків) → готова картка
+            </div>
+          </div>
+          <div style="color:var(--text-soft); font-size:18px;">›</div>
+        </div>
+      </div>
+
+      <div class="card" style="cursor:pointer; padding:18px;" onclick="showDemoReturningClient()">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="width:48px; height:48px; border-radius:16px; background:var(--primary-soft);
+                      display:grid; place-items:center; font-size:24px; flex-shrink:0;">🐶</div>
+          <div>
+            <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Постійний клієнт</div>
+            <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
+              Відкриває додаток і бачить: картку улюбленця, наступний візит, нагадування, історію
+            </div>
+          </div>
+          <div style="color:var(--text-soft); font-size:18px;">›</div>
+        </div>
+      </div>
+
+      <div style="text-align:center; padding:14px 0 4px; color:var(--text-soft); font-size:13px;">
+        У реальному Telegram кожен клієнт бачить свій сценарій автоматично
+      </div>
+    </div>
+  `;
+}
+
+window.renderWelcome = renderWelcome;
+window.showDemoReturningClient = async () => {
+  const pets = await api("/api/pets");
+  if (pets.length === 0) return renderWelcome();
+  // Беремо Sam — він найцікавіший (є наступний візит, день народження скоро)
+  const sam = pets.find(p => p.name === "Sam") || pets[0];
+  const pet = await api(`/api/pets/${sam.id}`);
+  renderOwnerPetCard(pet, true);
+};
+
+function renderWelcome() {
+  const backFn = tgUser ? "" : "renderOwnerDemoLanding()";
+  app.innerHTML = `
+    ${header({ title: window.SALON.name, backFn })}
+    <div class="hero">
+      <span class="paw">🐾</span>
+      <h2>${T.welcomeTitle}</h2>
+      <p>${T.welcomeSub}</p>
+      <button class="btn white" onclick="startQuestionnaire()">${T.welcomeStart}</button>
+    </div>
+    <div class="card">
+      <div style="font-size:14px; line-height:1.6; color:var(--text-soft);">
+        Після анкети ви будете отримувати:<br>
+        • 📅 нагадування за день до візиту<br>
+        • 🎂 привітання з днем народження улюбленця<br>
+        • 🐶 нагадування, коли час на наступну стрижку
+      </div>
+    </div>
+  `;
+}
+
+window.startQuestionnaire = () => {
+  forceNew = true;
+  renderQuestionnaire();
+};
+
+// ── Анкета — однопитанневий wizard ──────────────────────────────────────────
+const Q_STEPS = [
+  { key: "owner_name", label: T.qOwnerName, type: "text", required: true, placeholder: "Анна" },
+  { key: "owner_phone", label: T.qOwnerPhone, type: "phone" },
+  { key: "pet_name", label: T.qPetName, type: "text", required: true, placeholder: "Сем" },
+  { key: "photo_url", label: T.qPhoto, sub: T.qPhotoSub, type: "photo" },
+  { key: "breed", label: T.qBreed, type: "text", placeholder: "Pudel / Mix / ..." },
+  { key: "birthday", label: T.qBirthday, sub: T.qBirthdaySub, type: "date" },
+  { key: "allergies", label: T.qAllergies, sub: T.qAllergiesSub, type: "textarea", placeholder: "Куряче м'ясо, овес..." },
+  { key: "preferred_cut", label: T.qCut, sub: T.qCutSub, type: "textarea", placeholder: "Коротко, акуратні лапи..." },
+];
+
+let qState = {};
+let qStep = 0;
+
+function renderQuestionnaire(step = 0) {
+  qStep = step;
+  if (step >= Q_STEPS.length) return finishQuestionnaire();
+
+  const s = Q_STEPS[step];
+  const dots = Q_STEPS.map((_, i) => {
+    const cls = i < step ? "dot done" : (i === step ? "dot active" : "dot");
+    return `<div class="${cls}"></div>`;
+  }).join("");
+
+  let input;
+  if (s.type === "phone") {
+    const saved = qState[s.key] || "";
+    const savedCode = qState._phone_code || "+48";
+    const savedNum  = qState._phone_num  || "";
+    input = `
+      <div class="phone-row">
+        <select id="q-country" onchange="onCountryChange()">
+          <option value="+48"  ${savedCode==="+48"?"selected":""}>🇵🇱 +48</option>
+          <option value="+380" ${savedCode==="+380"?"selected":""}>🇺🇦 +380</option>
+          <option value="+49"  ${savedCode==="+49"?"selected":""}>🇩🇪 +49</option>
+          <option value="+420" ${savedCode==="+420"?"selected":""}>🇨🇿 +420</option>
+          <option value="+44"  ${savedCode==="+44"?"selected":""}>🇬🇧 +44</option>
+          <option value="+33"  ${savedCode==="+33"?"selected":""}>🇫🇷 +33</option>
+        </select>
+        <input id="q-input" type="tel" inputmode="numeric"
+               placeholder="123 456 789" value="${savedNum}"
+               oninput="onPhoneMask(event)">
+      </div>
+    `;
+  } else if (s.type === "textarea") {
+    input = `<textarea id="q-input" placeholder="${s.placeholder || ""}">${qState[s.key] || ""}</textarea>`;
+  } else if (s.type === "photo") {
+    input = `
+      <div style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+        <div id="photo-preview" style="width:120px; height:120px; border-radius:50%;
+             background:var(--primary-soft); display:grid; place-items:center; font-size:50px;
+             overflow:hidden; border: 3px dashed var(--border);">
+          ${qState.photo_url ? `<img src="${qState.photo_url}" style="width:100%;height:100%;object-fit:cover">` : "🐶"}
+        </div>
+        <label class="btn ghost small" style="cursor:pointer;">
+          Завантажити фото
+          <input type="file" id="q-input" accept="image/*" style="display:none" onchange="onPhotoChange(event)">
+        </label>
+      </div>
+    `;
+  } else {
+    input = `<input id="q-input" type="${s.type}" placeholder="${s.placeholder || ""}" value="${qState[s.key] || ""}">`;
+  }
+
+  const isLast = step === Q_STEPS.length - 1;
+  app.innerHTML = `
+    <div class="steps">${dots}</div>
+    <div class="form-step">
+      <h2>${s.label}</h2>
+      ${s.sub ? `<div class="sub">${s.sub}</div>` : ""}
+      <div class="row">${input}</div>
+    </div>
+    <div class="btn-row">
+      ${step > 0
+        ? `<button class="btn back outline" onclick="renderQuestionnaire(${step - 1})">←</button>`
+        : ""}
+      ${!s.required
+        ? `<button class="btn skip" onclick="qNext('')">${T.skip}</button>`
+        : ""}
+      <button class="btn" onclick="qNext()">${isLast ? T.done : T.next}</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const el = $("#q-input");
+    if (el && s.type !== "photo") el.focus();
+  }, 100);
+}
+
+window.qNext = (forcedValue) => {
+  const s = Q_STEPS[qStep];
+  let val;
+  if (forcedValue !== undefined) {
+    val = forcedValue;
+  } else if (s.type === "phone") {
+    const code = $("#q-country")?.value || qState._phone_code || "+48";
+    const num  = ($("#q-input")?.value || "").trim();
+    qState._phone_code = code;
+    qState._phone_num  = num;
+    val = num ? `${code} ${num}` : "";
+  } else if (s.type === "photo") {
+    val = qState.photo_url || "";
+  } else {
+    val = ($("#q-input")?.value || "").trim();
+  }
+
+  if (s.required && !val) {
+    toast("Будь ласка, заповніть це поле");
+    return;
+  }
+  qState[s.key] = val;
+  renderQuestionnaire(qStep + 1);
+};
+
+window.onPhotoChange = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    qState.photo_url = e.target.result;
+    renderQuestionnaire(qStep);
+  };
+  reader.readAsDataURL(file);
+};
+
+window.onCountryChange = () => {
+  qState._phone_code = $("#q-country")?.value || "+48";
+};
+
+window.onPhoneMask = (e) => {
+  let v = e.target.value.replace(/\D/g, "");
+  // групуємо по 3 цифри: 123 456 789
+  v = v.slice(0, 12).replace(/(\d{3})(?=\d)/g, "$1 ").trim();
+  e.target.value = v;
+  qState._phone_num = v;
+};
+
+window.renderQuestionnaire = renderQuestionnaire;
+
+async function finishQuestionnaire() {
+  app.innerHTML = `<div class="loading">${T.loading}</div>`;
+  try {
+    const body = {
+      owner_name: qState.owner_name || "Клієнт",
+      owner_phone: qState.owner_phone || "",
+      owner_telegram_id: tgUser?.id || null,
+      pet_name: qState.pet_name,
+      breed: qState.breed || "",
+      birthday: qState.birthday || "",
+      photo_url: qState.photo_url || "",
+      allergies: qState.allergies || "",
+      preferred_cut: qState.preferred_cut || "",
+      notes: "",
+    };
+    const pet = await api("/api/pets", { method: "POST", body });
+
+    app.innerHTML = `
+      ${header({ title: window.SALON.name })}
+      <div class="hero">
+        <span class="paw">🎉</span>
+        <h2>${T.qFinishTitle}</h2>
+        <p>${T.qFinishSub}</p>
+        <button class="btn white" onclick="showOwnerPet(${pet.id})">${T.qFinishContinue}</button>
+      </div>
+    `;
+    forceNew = false;
+    qState = {};
+  } catch (e) {
+    toast("Помилка: " + e.message);
+  }
+}
+
+window.showOwnerPet = async (petId) => {
+  const pet = await api(`/api/pets/${petId}`);
+  renderOwnerPetCard(pet);
+};
+
+// ── Картка улюбленця (вид клієнта) ──────────────────────────────────────────
+function renderOwnerPetCard(pet, showBack = false) {
+  const photoOrEmoji = pet.photo_url
+    ? `<img src="${pet.photo_url}">`
+    : dogEmoji(pet.breed);
+
+  const nextVisit = pet.next_visit
+    ? `
+      <div class="banner">
+        <div class="ic">📅</div>
+        <div class="text">
+          <strong>${T.nextVisitTitle}</strong>
+          <div>${fmtNextVisit(pet.next_visit.scheduled_for)}</div>
+          <div class="small">${window.SALON.address}</div>
+        </div>
+      </div>
+    `
+    : `
+      <div class="banner" style="background:#fff8e1; color:#92400e;">
+        <div class="ic">ℹ️</div>
+        <div class="text"><div class="small">${T.noNextVisit}</div></div>
+      </div>
+    `;
+
+  const bdayBanner = (pet.days_to_birthday !== null && pet.days_to_birthday <= 14)
+    ? `<div class="banner" style="background:#fff4e0; color:#92400e;">
+         <div class="ic">🎂</div>
+         <div class="text">
+           <strong>${T.birthdaySoon}</strong>
+           <div class="small">${T.birthdayDays(pet.days_to_birthday)}</div>
+         </div>
+       </div>`
+    : "";
+
+  const last = pet.last_visit;
+  const lastBlock = last
+    ? `
+      <div class="card">
+        <div style="font-size:12px; color:var(--text-soft); margin-bottom:6px;
+                    text-transform:uppercase; letter-spacing:0.5px;">${T.lastVisit}</div>
+        <div style="font-weight:600;">${last.service}</div>
+        <div style="font-size:13px; color:var(--text-soft); margin-top:4px;">
+          ${fmtDate(last.visit_date)}${last.cut_style && last.cut_style !== "—" ? ` · ${last.cut_style}` : ""}
+        </div>
+      </div>
+    `
+    : `<div class="card" style="text-align:center; color:var(--text-soft);">${T.noVisits}</div>`;
+
+  const ownerBackFn = showBack ? "renderOwnerDemoLanding()" : (tgUser ? "" : "renderOwnerDemoLanding()");
+  app.innerHTML = `
+    ${header({ title: T.myPet, backFn: ownerBackFn })}
+    <div class="detail-hero">
+      <div class="detail-photo">${photoOrEmoji}</div>
+      <h2>${pet.name}</h2>
+      <div class="sub">${pet.breed || ""}${pet.age ? ` · ${pet.age}` : ""}</div>
+    </div>
+    ${bdayBanner}
+    ${nextVisit}
+    ${lastBlock}
+    ${pet.allergies ? `
+      <div class="card" style="background:var(--warning-bg); color:var(--warning-text);">
+        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; font-weight:600;">
+          ⚠ ${T.allergies}
+        </div>
+        <div style="font-size:14px;">${pet.allergies}</div>
+      </div>` : ""}
+    ${pet.preferred_cut ? `
+      <div class="card">
+        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; font-weight:600; color:var(--text-soft);">
+          ✂ ${T.preferredCut}
+        </div>
+        <div style="font-size:14px;">${pet.preferred_cut}</div>
+      </div>` : ""}
+
+    <div class="section-title">${T.history} (${pet.visits.length})</div>
+    ${pet.visits.length === 0
+      ? `<div class="empty"><div class="ic">📋</div><p>Ще немає візитів</p></div>`
+      : pet.visits.map(visitItem).join("")}
+
+    <div class="action-bar">
+      <button class="btn outline" onclick="startQuestionnaire()" style="flex:1;">${T.editInfo}</button>
+    </div>
+  `;
+}
+
+function visitItem(v) {
+  const d = fmtVisitDate(v.visit_date);
+  return `
+    <div class="visit-item">
+      <div class="visit-date">
+        <span class="day">${d.day}</span>
+        ${d.month}
+      </div>
+      <div class="visit-info">
+        <div class="visit-service">${v.service || "—"}</div>
+        <div class="visit-meta">${v.cut_style && v.cut_style !== "—" ? v.cut_style : ""}${v.notes ? (v.cut_style ? " · " : "") + v.notes : ""}</div>
+      </div>
+      ${v.price ? `<div class="visit-price">${v.price} zł</div>` : ""}
+    </div>
+  `;
+}
+
+// ============================================================================
+// GROOMER FLOW
+// ============================================================================
+
+let groomerTab = "all";
+let groomerSearch = "";
+
+async function renderGroomer() {
+  const pets = await api("/api/pets");
+
+  const stats = {
+    today: pets.filter(p => p.next_visit && p.next_visit.scheduled_for?.startsWith(isoToday())).length,
+    week_bdays: pets.filter(p => p.days_to_birthday !== null && p.days_to_birthday <= 7).length,
+  };
+
+  const filtered = filterPets(pets);
+
+  app.innerHTML = `
+    ${header({ title: window.SALON.name })}
+    <div class="stats">
+      <div class="stat">
+        <div class="label">${T.today}</div>
+        <div class="value">${stats.today}</div>
+      </div>
+      <div class="stat">
+        <div class="label">${T.birthdays}</div>
+        <div class="value">${stats.week_bdays}</div>
+      </div>
+      <div class="stat">
+        <div class="label">Всього</div>
+        <div class="value">${pets.length}</div>
+      </div>
+    </div>
+
+    <div class="search">
+      <input type="text" placeholder="${T.search}" id="search-input" value="${groomerSearch}">
+    </div>
+
+    <div class="tabs">
+      ${tabBtn("all", T.tabAll)}
+      ${tabBtn("today", T.tabToday)}
+      ${tabBtn("birthdays", T.tabBirthdays)}
+      ${tabBtn("followup", T.tabFollowup)}
+    </div>
+
+    <div id="pet-list">
+      ${filtered.length === 0
+        ? `<div class="empty"><div class="ic">🔍</div><p>Нічого не знайдено</p></div>`
+        : filtered.map(petCardHTML).join("")}
+    </div>
+  `;
+
+  $("#search-input").addEventListener("input", (e) => {
+    groomerSearch = e.target.value.toLowerCase();
+    const filtered = filterPets(pets);
+    $("#pet-list").innerHTML = filtered.length === 0
+      ? `<div class="empty"><div class="ic">🔍</div><p>Нічого не знайдено</p></div>`
+      : filtered.map(petCardHTML).join("");
+  });
+}
+
+function tabBtn(key, label) {
+  const cls = groomerTab === key ? "tab active" : "tab";
+  return `<div class="${cls}" onclick="setTab('${key}')">${label}</div>`;
+}
+
+window.setTab = (k) => {
+  groomerTab = k;
+  renderGroomer();
+};
+
+function filterPets(pets) {
+  let list = pets;
+  if (groomerTab === "today") {
+    list = list.filter(p => p.next_visit && p.next_visit.scheduled_for?.startsWith(isoToday()));
+  } else if (groomerTab === "birthdays") {
+    list = list.filter(p => p.days_to_birthday !== null && p.days_to_birthday <= 7);
+  } else if (groomerTab === "followup") {
+    list = list.filter(p => p.weeks_since_last_visit !== null && p.weeks_since_last_visit >= (p.followup_weeks || 6));
+  }
+  if (groomerSearch) {
+    list = list.filter(p =>
+      (p.name || "").toLowerCase().includes(groomerSearch) ||
+      (p.owner_name || "").toLowerCase().includes(groomerSearch) ||
+      (p.breed || "").toLowerCase().includes(groomerSearch)
+    );
+  }
+  return list;
+}
+
+function petCardHTML(p) {
+  const photo = p.photo_url
+    ? `<img src="${p.photo_url}">`
+    : dogEmoji(p.breed);
+
+  const chips = [];
+  if (p.days_to_birthday !== null && p.days_to_birthday <= 14) {
+    chips.push(`<span class="chip accent">🎂 ${p.days_to_birthday === 0 ? "Сьогодні!" : `ДН за ${p.days_to_birthday} ${plural(p.days_to_birthday, "день", "дні", "днів")}`}</span>`);
+  }
+  if (p.allergies) {
+    chips.push(`<span class="chip warning">⚠ Алергії</span>`);
+  }
+  if (p.next_visit) {
+    chips.push(`<span class="chip">📅 ${fmtNextVisit(p.next_visit.scheduled_for)}</span>`);
+  } else if (p.weeks_since_last_visit !== null && p.weeks_since_last_visit >= (p.followup_weeks || 6)) {
+    chips.push(`<span class="chip danger">⏰ ${p.weeks_since_last_visit} тиж. без візиту</span>`);
+  } else if (p.weeks_since_last_visit !== null) {
+    chips.push(`<span class="chip muted">Останній: ${p.weeks_since_last_visit} тиж. тому</span>`);
+  }
+
+  return `
+    <div class="pet-card" onclick="showPet(${p.id})">
+      <div class="pet-photo">${photo}</div>
+      <div class="pet-info">
+        <div class="pet-name">${p.name}</div>
+        <div class="pet-meta">${p.breed || "—"}${p.age ? ` · ${p.age}` : ""} · ${p.owner_name}</div>
+        <div class="pet-chips">${chips.join("")}</div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Деталь pet (грумер) ─────────────────────────────────────────────────────
+window.showPet = async (id) => {
+  const pet = await api(`/api/pets/${id}`);
+  renderPetDetail(pet);
+};
+
+function renderPetDetail(pet) {
+  const photo = pet.photo_url
+    ? `<img src="${pet.photo_url}">`
+    : dogEmoji(pet.breed);
+
+  const tgLink = pet.owner.telegram_id
+    ? `https://t.me/${pet.owner.telegram_id}`
+    : `https://t.me/${window.SALON.groomerTelegram}`;
+
+  app.innerHTML = `
+    ${header({ title: pet.name, backFn: "renderGroomer()" })}
+    <div class="detail-hero">
+      <div class="detail-photo">${photo}</div>
+      <h2>${pet.name}</h2>
+      <div class="sub">${pet.breed || ""}${pet.age ? ` · ${pet.age}` : ""}</div>
+      ${pet.next_visit ? `
+        <div style="margin-top:14px; padding:10px 14px; background:var(--primary-soft);
+                    color:var(--primary-dark); border-radius:14px; font-size:14px; font-weight:500;">
+          📅 ${fmtNextVisit(pet.next_visit.scheduled_for)}
+        </div>` : ""}
+    </div>
+
+    <div class="card">
+      <div class="info-row">
+        <div class="ic">👤</div>
+        <div class="label-block">
+          <div class="lbl">${T.owner}</div>
+          <div class="val">${pet.owner.name}</div>
+        </div>
+      </div>
+      ${pet.owner.phone ? `
+        <div class="info-row" onclick="window.location.href='tel:${pet.owner.phone}'">
+          <div class="ic">📞</div>
+          <div class="label-block">
+            <div class="lbl">Телефон</div>
+            <div class="val">${pet.owner.phone}</div>
+          </div>
+        </div>` : ""}
+      ${pet.birthday ? `
+        <div class="info-row">
+          <div class="ic">🎂</div>
+          <div class="label-block">
+            <div class="lbl">День народження</div>
+            <div class="val">${fmtDate(pet.birthday)}${pet.days_to_birthday !== null && pet.days_to_birthday <= 30 ? ` (через ${pet.days_to_birthday} ${plural(pet.days_to_birthday, "день","дні","днів")})` : ""}</div>
+          </div>
+        </div>` : ""}
+      ${pet.allergies ? `
+        <div class="info-row warning">
+          <div class="ic">⚠</div>
+          <div class="label-block">
+            <div class="lbl">${T.allergies}</div>
+            <div class="val">${pet.allergies}</div>
+          </div>
+        </div>` : ""}
+      ${pet.preferred_cut ? `
+        <div class="info-row">
+          <div class="ic">✂</div>
+          <div class="label-block">
+            <div class="lbl">${T.preferredCut}</div>
+            <div class="val">${pet.preferred_cut}</div>
+          </div>
+        </div>` : ""}
+      ${pet.notes ? `
+        <div class="info-row">
+          <div class="ic">📝</div>
+          <div class="label-block">
+            <div class="lbl">${T.notes}</div>
+            <div class="val">${pet.notes}</div>
+          </div>
+        </div>` : ""}
+    </div>
+
+    <div class="section-title">${T.history} (${pet.visits.length})</div>
+    ${pet.visits.length === 0
+      ? `<div class="empty"><div class="ic">📋</div><p>Ще немає візитів</p></div>`
+      : pet.visits.map(visitItem).join("")}
+
+    <div class="action-bar">
+      <button class="btn ghost" onclick="openAddVisit(${pet.id})">${T.addVisit}</button>
+      <button class="btn ghost" onclick="openSchedule(${pet.id})">${T.scheduleNext}</button>
+      <button class="btn" onclick="openReminder(${pet.id})">${T.sendReminder}</button>
+    </div>
+  `;
+}
+
+// ── Sheets ──────────────────────────────────────────────────────────────────
+function openSheet(html) {
+  let sheet = $(".sheet");
+  let backdrop = $(".sheet-backdrop");
+  if (!sheet) {
+    backdrop = document.createElement("div");
+    backdrop.className = "sheet-backdrop";
+    backdrop.onclick = closeSheet;
+    document.body.appendChild(backdrop);
+
+    sheet = document.createElement("div");
+    sheet.className = "sheet";
+    document.body.appendChild(sheet);
+  }
+  sheet.innerHTML = `<div class="sheet-handle"></div>${html}`;
+  setTimeout(() => {
+    sheet.classList.add("open");
+    backdrop.classList.add("open");
+  }, 10);
+}
+
+function closeSheet() {
+  $(".sheet")?.classList.remove("open");
+  $(".sheet-backdrop")?.classList.remove("open");
+}
+window.closeSheet = closeSheet;
+
+// ── Add visit ──────────────────────────────────────────────────────────────
+window.openAddVisit = (petId) => {
+  openSheet(`
+    <h3>${T.addVisitTitle}</h3>
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.visitDate}</label>
+      <input type="date" id="v-date" value="${isoToday()}">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.service}</label>
+      <input type="text" id="v-service" value="Повне грумування">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.cutStyle}</label>
+      <input type="text" id="v-cut" placeholder="Класична / коротка / ...">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.price}</label>
+      <input type="number" id="v-price" placeholder="180">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <label>${T.visitNotes}</label>
+      <textarea id="v-notes" placeholder=""></textarea>
+    </div>
+    <div class="row" style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+      <input type="checkbox" id="v-followup" checked style="width:auto;">
+      <label for="v-followup" style="margin:0;">${T.scheduleFollowup}</label>
+    </div>
+    <button class="btn" onclick="saveVisit(${petId})">${T.save}</button>
+  `);
+};
+
+window.saveVisit = async (petId) => {
+  try {
+    await api(`/api/pets/${petId}/visits`, {
+      method: "POST",
+      body: {
+        visit_date: $("#v-date").value,
+        service: $("#v-service").value,
+        cut_style: $("#v-cut").value,
+        price: parseFloat($("#v-price").value) || 0,
+        notes: $("#v-notes").value,
+        schedule_followup: $("#v-followup").checked,
+      },
+    });
+    closeSheet();
+    toast(T.saved);
+    showPet(petId);
+  } catch (e) {
+    toast("Помилка: " + e.message);
+  }
+};
+
+// ── Schedule next visit ────────────────────────────────────────────────────
+window.openSchedule = (petId) => {
+  const tomorrow = new Date(Date.now() + 86400000);
+  const iso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,"0")}-${String(tomorrow.getDate()).padStart(2,"0")}`;
+  openSheet(`
+    <h3>${T.scheduleTitle}</h3>
+    <div class="row" style="margin-bottom:12px;">
+      <label>Дата</label>
+      <input type="date" id="s-date" value="${iso}">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <label>Час</label>
+      <input type="time" id="s-time" value="15:00">
+    </div>
+    <div class="row" style="margin-bottom:14px;">
+      <label>${T.service}</label>
+      <input type="text" id="s-service" value="Повне грумування">
+    </div>
+    <button class="btn" onclick="saveSchedule(${petId})">${T.save}</button>
+  `);
+};
+
+window.saveSchedule = async (petId) => {
+  try {
+    const dt = $("#s-date").value + " " + $("#s-time").value;
+    await api(`/api/pets/${petId}/schedule`, {
+      method: "POST",
+      body: { visit_date: dt, service: $("#s-service").value },
+    });
+    closeSheet();
+    toast("Запис заплановано");
+    showPet(petId);
+  } catch (e) {
+    toast("Помилка: " + e.message);
+  }
+};
+
+// ── Reminders ──────────────────────────────────────────────────────────────
+window.openReminder = (petId) => {
+  openSheet(`
+    <h3>${T.reminderTitle}</h3>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <button class="btn outline" style="text-align:left; justify-content:flex-start;" onclick="previewReminder(${petId}, 'visit')">
+        📅 ${T.reminderVisit}
+      </button>
+      <button class="btn outline" style="text-align:left; justify-content:flex-start;" onclick="previewReminder(${petId}, 'birthday')">
+        🎂 ${T.reminderBirthday}
+      </button>
+      <button class="btn outline" style="text-align:left; justify-content:flex-start;" onclick="previewReminder(${petId}, 'followup')">
+        🐶 ${T.reminderFollowup}
+      </button>
+    </div>
+    <div id="reminder-preview"></div>
+  `);
+};
+
+window.previewReminder = async (petId, kind) => {
+  const data = await api(`/api/reminders/preview/${petId}/${kind}`);
+  const block = $("#reminder-preview");
+  block.innerHTML = `
+    <div class="tg-preview">
+      <div class="label">${T.reminderPreviewLabel}</div>
+      <div class="tg-bubble" data-bot="${window.SALON.name}">${escapeHtml(data.text)}</div>
+    </div>
+    <button class="btn" style="margin-top:10px;" onclick="sendReminder(${petId}, '${kind}')">
+      ${T.reminderSend}
+    </button>
+  `;
+};
+
+window.sendReminder = async (petId, kind) => {
+  try {
+    const r = await api(`/api/reminders/send/${petId}/${kind}`, { method: "POST" });
+    if (r.sent) {
+      toast(T.reminderSent);
+    } else {
+      toast(T.reminderDemo, 3000);
+    }
+    setTimeout(closeSheet, 1500);
+  } catch (e) {
+    toast("Помилка: " + e.message);
+  }
+};
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+window.renderGroomer = renderGroomer;
+window.renderOwnerDemoLanding = renderOwnerDemoLanding;
+
+// ── Клавіатура: підіймаємо btn-row разом з нею ──────────────────────────────
+(function initKeyboardShift() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+
+  function shift() {
+    const row = document.querySelector(".btn-row");
+    if (!row) return;
+    // Висота, на яку клавіатура перекриває viewport
+    const keyboardHeight = window.innerHeight - vv.height - vv.pageTop;
+    row.style.transform = keyboardHeight > 50
+      ? `translateY(-${keyboardHeight}px)`
+      : "";
+  }
+
+  vv.addEventListener("resize", shift);
+  vv.addEventListener("scroll", shift);
+})();
+
+// ── СТАРТ ──────────────────────────────────────────────────────────────────
+render().catch(e => {
+  app.innerHTML = `<div class="loading">Помилка: ${e.message}</div>`;
+});
