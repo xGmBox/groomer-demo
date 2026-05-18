@@ -18,6 +18,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import traceback
+
 import aiosqlite
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -211,34 +213,39 @@ app = FastAPI(lifespan=lifespan, title=f"{SALON_NAME} Demo")
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
-@app.middleware("http")
-async def skip_ngrok_banner(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["ngrok-skip-browser-warning"] = "true"
-    return response
+_TMPL_CTX = lambda req: {  # noqa: E731
+    "request": req,
+    "salon_name": SALON_NAME,
+    "salon_address": SALON_ADDRESS,
+    "groomer_telegram": GROOMER_TELEGRAM,
+    "bot_enabled": bool(BOT_TOKEN),
+}
 
 
 # ── Сторінки ─────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("miniapp.html", {
-        "request": request,
-        "salon_name": SALON_NAME,
-        "salon_address": SALON_ADDRESS,
-        "groomer_telegram": GROOMER_TELEGRAM,
-        "bot_enabled": bool(BOT_TOKEN),
-    })
+    try:
+        return templates.TemplateResponse("miniapp.html", _TMPL_CTX(request))
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb)
+        return HTMLResponse(f"<pre>{tb}</pre>", status_code=500)
 
 
 @app.get("/app", response_class=HTMLResponse)
 async def miniapp(request: Request):
-    return templates.TemplateResponse("miniapp.html", {
-        "request": request,
-        "salon_name": SALON_NAME,
-        "salon_address": SALON_ADDRESS,
-        "groomer_telegram": GROOMER_TELEGRAM,
-        "bot_enabled": bool(BOT_TOKEN),
-    })
+    try:
+        return templates.TemplateResponse("miniapp.html", _TMPL_CTX(request))
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb)
+        return HTMLResponse(f"<pre>{tb}</pre>", status_code=500)
+
+
+@app.get("/ping")
+async def ping():
+    return {"ok": True, "salon": SALON_NAME}
 
 
 # ── API ──────────────────────────────────────────────────────────────────────
