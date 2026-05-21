@@ -34,8 +34,22 @@ ROOT = Path(__file__).parent
 DB_FILE = str(ROOT / "salon.db")
 PORT = int(os.getenv("PORT", "5050"))
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-SALON_NAME = os.getenv("SALON_NAME", "Pawfect Studio")
-SALON_ADDRESS = os.getenv("SALON_ADDRESS", "ul. Kwiatowa 12, Warszawa")
+SALON_NAME = os.getenv("SALON_NAME", "Imperial Dog")
+SALON_TAGLINE = os.getenv("SALON_TAGLINE", "Grooming & Spa")
+SALON_ADDRESS = os.getenv("SALON_ADDRESS", "Zielonka, ul. Kolejowa 25")
+SALON_PHONE = os.getenv("SALON_PHONE", "+48 519 356 900")
+SALON_HOURS = {
+    "uk": [
+        ("Понеділок — П'ятниця", "09:00 – 19:00"),
+        ("Субота",               "08:00 – 15:00"),
+        ("Неділя",               "вихідний"),
+    ],
+    "pl": [
+        ("Poniedziałek — Piątek", "09:00 – 19:00"),
+        ("Sobota",                "08:00 – 15:00"),
+        ("Niedziela",             "nieczynne"),
+    ],
+}
 GROOMER_TELEGRAM = os.getenv("GROOMER_TELEGRAM", "anna_groomer")
 
 # ── Каталог послуг (S/M/L ціни в PLN, тривалість у хвилинах) ─────────────────
@@ -281,7 +295,10 @@ templates = Jinja2Templates(directory=str(ROOT / "templates"))
 _TMPL_CTX = lambda req: {  # noqa: E731
     "request": req,
     "salon_name": SALON_NAME,
+    "salon_tagline": SALON_TAGLINE,
     "salon_address": SALON_ADDRESS,
+    "salon_phone": SALON_PHONE,
+    "salon_hours": SALON_HOURS,
     "groomer_telegram": GROOMER_TELEGRAM,
     "bot_enabled": bool(BOT_TOKEN),
 }
@@ -318,7 +335,10 @@ async def ping():
 async def api_config():
     return {
         "salon_name": SALON_NAME,
+        "salon_tagline": SALON_TAGLINE,
         "salon_address": SALON_ADDRESS,
+        "salon_phone": SALON_PHONE,
+        "salon_hours": SALON_HOURS,
         "groomer_telegram": GROOMER_TELEGRAM,
         "bot_enabled": bool(BOT_TOKEN),
     }
@@ -789,15 +809,17 @@ def render_reminder(pet: dict, kind: str, lang: str | None = None) -> str:
             when = f"jutro o {time_str}" if time_str else "jutro"
             return (
                 f"Cześć, {name}! 🐾\n"
-                f"Przypominamy: {when} czekamy na {pet_name} na strzyżenie.\n"
-                f"📍 {SALON_ADDRESS}\n\n"
+                f"Przypominamy: {when} czekamy na {pet_name} w {SALON_NAME}.\n"
+                f"📍 {SALON_ADDRESS}\n"
+                f"📞 {SALON_PHONE}\n\n"
                 f"Jeśli plany się zmieniły — napisz w odpowiedzi."
             )
         when = f"завтра о {time_str}" if time_str else "завтра"
         return (
             f"Привіт, {name}! 🐾\n"
-            f"Нагадуємо: {when} чекаємо {pet_name} на стрижку.\n"
-            f"📍 {SALON_ADDRESS}\n\n"
+            f"Нагадуємо: {when} чекаємо {pet_name} в {SALON_NAME}.\n"
+            f"📍 {SALON_ADDRESS}\n"
+            f"📞 {SALON_PHONE}\n\n"
             f"Якщо плани змінились — просто напишіть у відповідь."
         )
     if kind == "birthday":

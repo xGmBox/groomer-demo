@@ -353,10 +353,17 @@ window.switchLang = (l) => {
 
 // ── Header ──────────────────────────────────────────────────────────────────
 function header({ title, backFn = "" } = {}) {
+  const showLogo = !backFn;
   return `
     <div class="header">
       ${backFn ? `<button class="back" onclick="${backFn}">←</button>` : ""}
-      <h1>${title}</h1>
+      ${showLogo
+        ? `<img class="brand-logo" src="${window.SALON.logoColor}" alt="${window.SALON.name}">
+           <div class="brand-text">
+             <div class="brand-name">${window.SALON.name}</div>
+             <div class="brand-tag">${window.SALON.tagline || ""}</div>
+           </div>`
+        : `<h1>${title}</h1>`}
       <div class="header-actions">
         ${langToggleBtn()}
         ${roleToggleBtn()}
@@ -430,9 +437,9 @@ function renderOwnerDemoLanding() {
   app.innerHTML = `
     ${header({ title: window.SALON.name })}
     <div class="hero" style="text-align:center;">
-      <span class="paw">🐾</span>
-      <h2>Демо для клієнта</h2>
-      <p style="opacity:0.9;">Оберіть сценарій, щоб побачити шлях клієнта</p>
+      <img class="landing-logo" src="${window.SALON.logoColor}" alt="${window.SALON.name}">
+      <h2>${window.SALON.name}</h2>
+      <p style="opacity:0.92;">${window.SALON.tagline}</p>
     </div>
 
     <div style="padding: 0 14px; display:flex; flex-direction:column; gap:12px; margin-top:4px;">
@@ -467,7 +474,7 @@ function renderOwnerDemoLanding() {
 
       <div class="card" style="cursor:pointer; padding:18px;" onclick="showDemoReturningClient('Sam')">
         <div style="display:flex; align-items:center; gap:14px;">
-          <div style="width:48px; height:48px; border-radius:16px; background:#fff4e6;
+          <div style="width:48px; height:48px; border-radius:16px; background:#EFD9CF;
                       display:grid; place-items:center; font-size:24px; flex-shrink:0;">🐕</div>
           <div>
             <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Anna (PL) — Sam 🇵🇱</div>
@@ -702,6 +709,36 @@ window.showOwnerPet = async (petId) => {
   renderOwnerPetCard(pet);
 };
 
+function salonInfoBlock() {
+  const hours = (window.SALON.hours || {})[currentLang] || (window.SALON.hours || {}).uk || [];
+  const tel = (window.SALON.phone || "").replace(/\s/g, "");
+  const titleTxt = currentLang === "pl" ? "Salon" : "Салон";
+  const hoursLabel = currentLang === "pl" ? "Godziny pracy" : "Години роботи";
+  return `
+    <div class="salon-info">
+      <h3>${titleTxt}</h3>
+      <div class="row-line">
+        <div class="ic">📍</div>
+        <div>${window.SALON.address}</div>
+      </div>
+      <div class="row-line">
+        <div class="ic">📞</div>
+        <div><a href="tel:${tel}">${window.SALON.phone}</a></div>
+      </div>
+      <div class="hours">
+        <h3 style="margin:4px 0 6px;">${hoursLabel}</h3>
+        ${hours.map(([day, time]) => {
+          const closed = /вихідний|nieczynne/i.test(time);
+          return `<div class="hours-row ${closed ? "closed" : ""}">
+            <span class="day">${day}</span>
+            <span class="time">${time}</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
 // ── Картка улюбленця (вид клієнта) ──────────────────────────────────────────
 function statusChip(status) {
   if (!status) return `<span class="status-chip pending">${T.statusPending}</span>`;
@@ -713,7 +750,7 @@ function statusChip(status) {
 function nextVisitBanner(pet) {
   if (!pet.next_visit) {
     return `
-      <div class="banner" style="background:#fff8e1; color:#92400e;">
+      <div class="banner" style="background:var(--warning-bg); color:var(--warning-text);">
         <div class="ic">ℹ️</div>
         <div class="text"><div class="small">${T.noNextVisit}</div></div>
       </div>`;
@@ -764,7 +801,7 @@ function renderOwnerPetCard(pet, showBack = false) {
   const nextVisit = nextVisitBanner(pet);
 
   const bdayBanner = (pet.days_to_birthday !== null && pet.days_to_birthday <= 14)
-    ? `<div class="banner" style="background:#fff4e0; color:#92400e;">
+    ? `<div class="banner" style="background:var(--warning-bg); color:var(--warning-text);">
          <div class="ic">🎂</div>
          <div class="text">
            <strong>${T.birthdaySoon}</strong>
@@ -813,6 +850,8 @@ function renderOwnerPetCard(pet, showBack = false) {
         </div>
         <div style="font-size:14px;">${pet.preferred_cut}</div>
       </div>` : ""}
+
+    ${salonInfoBlock()}
 
     <details class="price-list" id="price-list">
       <summary>💰 ${T.priceListTitle}</summary>
