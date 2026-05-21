@@ -674,36 +674,183 @@ input[type="checkbox"] {
 }
 .gs-name { color: var(--text); font-weight: 600; }
 
-/* Price-list — повна таблиця порід */
+/* Price-list — нова розкладка: контроли + breed-картки */
 .price-list-table {
-  font-size: 12px; max-height: 360px; overflow-y: auto;
-  margin: -4px -16px -10px; padding: 0 16px 10px;
+  margin: -4px -16px -10px; padding: 0;
+  display: flex; flex-direction: column;
 }
-.price-list-table .pl-row {
-  display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr;
-  gap: 4px; padding: 8px 0; border-top: 1px solid var(--border);
-  align-items: center;
+
+/* Controls — search + tabs (above scrollable .pl-body) */
+.pl-controls {
+  background: var(--surface);
+  padding: 8px 16px 10px;
+  border-bottom: 1px solid var(--border);
 }
-.price-list-table .pl-row.head {
-  font-size: 10px; text-transform: uppercase; color: var(--text-soft);
-  letter-spacing: 0.4px; font-weight: 600; border-top: none;
-  position: sticky; top: 0; background: var(--surface); padding-top: 4px;
+.pl-search-wrap {
+  position: relative; margin-bottom: 8px;
 }
-.price-list-table .pl-row .svc { font-weight: 500; display:flex; align-items:center; gap:4px; }
-.price-list-table .pl-row .svc .badge {
-  display: inline-block; background: var(--gold); color: var(--primary-dark);
-  font-size: 9px; padding: 1px 5px; border-radius: 999px; font-weight: 700;
-  letter-spacing: 0.3px;
+.pl-search-ic {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; opacity: 0.6; pointer-events: none;
 }
-.price-list-table .pl-row .pr { text-align: right; color: var(--primary); font-weight: 600; font-size: 11px; }
-.price-list-table .pl-row.current {
-  background: var(--primary-soft); margin: 0 -8px; padding-left: 8px; padding-right: 8px;
-  border-radius: 8px;
+.pl-search {
+  width: 100%; box-sizing: border-box;
+  padding: 9px 12px 9px 32px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg);
+  font-size: 13px; color: var(--text);
+  font-family: inherit;
 }
-.price-list-table .additional {
-  margin-top: 10px; padding-top: 10px; border-top: 2px solid var(--border);
+.pl-search:focus {
+  outline: none; border-color: var(--primary);
+  background: var(--surface);
 }
-.price-list-table .additional .pl-row { grid-template-columns: 2fr 1fr; }
+.pl-tabs {
+  display: flex; gap: 6px;
+  overflow-x: auto; scrollbar-width: none;
+  margin: 0 -4px; padding: 0 4px 2px;
+}
+.pl-tabs::-webkit-scrollbar { display: none; }
+.pl-tab {
+  flex-shrink: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text); font-weight: 500;
+  font-size: 12px; padding: 6px 12px; border-radius: 999px;
+  cursor: pointer; white-space: nowrap;
+  transition: all 0.15s;
+}
+.pl-tab:hover { border-color: var(--primary); }
+.pl-tab.active {
+  background: var(--primary); color: white;
+  border-color: var(--primary);
+}
+
+/* Body */
+.pl-body {
+  max-height: 420px; overflow-y: auto;
+  padding: 10px 16px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.pl-section-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-soft);
+  margin: 6px 0 -2px;
+}
+.pl-empty {
+  text-align: center; color: var(--text-soft);
+  padding: 24px 8px; font-size: 13px;
+}
+.pl-footer {
+  font-size: 11px; color: var(--text-soft);
+  padding: 10px 16px 12px; line-height: 1.4;
+  border-top: 1px solid var(--border);
+}
+
+/* Breed card (Wszystkie view) */
+.breed-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.breed-card.current {
+  background: linear-gradient(135deg, var(--primary-soft), #F5E8C9);
+  border-color: var(--gold);
+  box-shadow: 0 2px 8px rgba(200, 155, 90, 0.18);
+}
+.bc-head {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 6px;
+}
+.bc-name {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  flex: 1; min-width: 0;
+}
+.bc-head .badge {
+  background: var(--gold); color: var(--primary-dark);
+  font-size: 9px; padding: 2px 6px; border-radius: 999px;
+  font-weight: 700; letter-spacing: 0.3px;
+}
+.bc-prices {
+  display: flex; flex-direction: column;
+  gap: 2px;
+}
+.bc-line {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 4px 0;
+  font-size: 12.5px;
+}
+.bc-svc {
+  color: var(--text-soft); display: flex; align-items: center; gap: 6px;
+  min-width: 0; flex: 1;
+}
+.bc-ic { font-size: 13px; }
+.bc-val {
+  display: flex; flex-direction: column; align-items: flex-end;
+  text-align: right; flex-shrink: 0;
+}
+
+/* Single-service rows */
+.breed-rows {
+  display: flex; flex-direction: column;
+}
+.breed-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.breed-row:last-child { border-bottom: none; }
+.breed-row.current {
+  background: linear-gradient(135deg, var(--primary-soft), #F5E8C9);
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+.br-name {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+}
+.br-name .badge {
+  background: var(--gold); color: var(--primary-dark);
+  font-size: 9px; padding: 1px 5px; border-radius: 999px;
+  font-weight: 700; letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.br-price {
+  text-align: right; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+
+/* Price value parts */
+.bp-main {
+  color: var(--primary-dark); font-weight: 700;
+  font-size: 13px; white-space: nowrap;
+}
+.bp-main.bp-hourly {
+  font-size: 12px;
+}
+.bp-sub {
+  font-size: 10px; color: var(--text-soft);
+  font-weight: 500; margin-top: 1px; white-space: nowrap;
+}
+.bp-empty { color: var(--text-soft); font-size: 13px; }
+
+/* Add-ons list */
+.addons-list {
+  display: flex; flex-direction: column;
+}
+.addon-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.addon-row:last-child { border-bottom: none; }
+.ar-name { color: var(--text); flex: 1; min-width: 0; }
+.ar-price { text-align: right; flex-shrink: 0; }
 
 /* Loyalty when not eligible — show inactive state */
 .loyalty-card.not-eligible {

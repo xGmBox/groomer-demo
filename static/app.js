@@ -90,6 +90,22 @@ const T_BASE = {
   sizeM: "Середні",
   sizeL: "Великі",
   duration: "Тривалість",
+  priceSearch: "Знайти породу…",
+  priceAll: "Усі",
+  priceTabFull: "✂ Грумінг",
+  priceTabBath: "🛁 Купання",
+  priceTabCare: "🌸 Догляд",
+  priceTabAddons: "＋ Додатки",
+  priceYourBreed: "Ваша порода",
+  priceOtherBreeds: "Інші породи",
+  priceNoMatch: "Нічого не знайдено",
+  priceOr: "або",
+  priceFrom: "від",
+  priceAddonsTitle: "Додаткові послуги",
+  priceLoyaltyHint: "★ — порода доступна для картки постійного клієнта (кожна 5-та стрижка −10%, 10-та −25%)",
+  priceSvcFull: "Повний грумінг",
+  priceSvcBath: "Купання + косметика",
+  priceSvcCare: "Догляд",
 
   confirmBtn: "✅ Підтверджую",
   rescheduleBtn: "↻ Перенести",
@@ -173,6 +189,22 @@ const LANG_PL = {
   sizeM: "Średnie",
   sizeL: "Duże",
   duration: "Czas",
+  priceSearch: "Szukaj rasy…",
+  priceAll: "Wszystkie",
+  priceTabFull: "✂ Grooming",
+  priceTabBath: "🛁 Kąpiel",
+  priceTabCare: "🌸 Pielęgnacje",
+  priceTabAddons: "＋ Dodatki",
+  priceYourBreed: "Twoja rasa",
+  priceOtherBreeds: "Pozostałe rasy",
+  priceNoMatch: "Brak wyników",
+  priceOr: "lub",
+  priceFrom: "od",
+  priceAddonsTitle: "Usługi dodatkowe",
+  priceLoyaltyHint: "★ — rasa kwalifikuje się do karty stałego klienta (każde 5. strzyżenie −10%, 10. −25%)",
+  priceSvcFull: "Pełne grooming",
+  priceSvcBath: "Kąpiel + kosmetyka",
+  priceSvcCare: "Pielęgnacje",
 
   confirmBtn: "✅ Potwierdzam",
   rescheduleBtn: "↻ Przełóż",
@@ -909,50 +941,181 @@ function renderOwnerPetCard(pet, showBack = false) {
   loadPriceRows();
 }
 
+// ── Прайс-лист: парсинг та рендер ──────────────────────────────────────────
+function parsePriceParts(p) {
+  if (!p || p === "—") return { main: "—", hourly: null, empty: true };
+  if (p.includes(" / ")) {
+    const [main, hourly] = p.split(" / ").map(s => s.trim());
+    return { main, hourly, empty: false };
+  }
+  if (p.includes("zł/godz") || p.includes("zł/год")) {
+    return { main: p, hourly: null, empty: false, hourlyOnly: true };
+  }
+  return { main: p, hourly: null, empty: false };
+}
+
+function priceCell(raw) {
+  const p = parsePriceParts(raw);
+  if (p.empty) return `<span class="bp-empty">—</span>`;
+  const main = `<span class="bp-main${p.hourlyOnly ? " bp-hourly" : ""}">${p.main}</span>`;
+  const sub = p.hourly ? `<span class="bp-sub">${T.priceOr} ${p.hourly}</span>` : "";
+  return main + sub;
+}
+
+const priceListState = { data: null, category: "all", search: "", breedKey: "" };
+
+function breedMatches(breed, query) {
+  if (!query) return true;
+  return breed.toLowerCase().includes(query.toLowerCase().trim());
+}
+
+function isCurrentBreed(breedName) {
+  const b = priceListState.breedKey;
+  if (!b) return false;
+  const bn = breedName.toLowerCase();
+  return bn.includes(b) || b.includes(bn);
+}
+
+function breedCardFull(r, columns, opts = {}) {
+  const badge = r.eligible ? `<span class="badge">★</span>` : "";
+  const services = [
+    { label: T.priceSvcFull, icon: "✂", value: r.full },
+    { label: T.priceSvcBath, icon: "🛁", value: r.bath },
+    { label: T.priceSvcCare, icon: "🌸", value: r.care },
+  ];
+  const rows = services.map(s => `
+    <div class="bc-line">
+      <span class="bc-svc"><span class="bc-ic">${s.icon}</span>${s.label}</span>
+      <span class="bc-val">${priceCell(s.value)}</span>
+    </div>
+  `).join("");
+  return `<div class="breed-card${opts.current ? " current" : ""}">
+    <div class="bc-head">
+      <span class="bc-name">${r.breed}</span>${badge}
+    </div>
+    <div class="bc-prices">${rows}</div>
+  </div>`;
+}
+
+function breedRowSingle(r, field) {
+  const badge = r.eligible ? `<span class="badge">★</span>` : "";
+  const cur = isCurrentBreed(r.breed) ? " current" : "";
+  return `<div class="breed-row${cur}">
+    <div class="br-name">${r.breed}${badge}</div>
+    <div class="br-price">${priceCell(r[field])}</div>
+  </div>`;
+}
+
+function renderPriceList() {
+  const block = $("#price-rows");
+  if (!block) return;
+  const data = priceListState.data;
+  if (!data) return;
+
+  const { category, search } = priceListState;
+  const tabs = [
+    { key: "all",    label: T.priceAll },
+    { key: "full",   label: T.priceTabFull },
+    { key: "bath",   label: T.priceTabBath },
+    { key: "care",   label: T.priceTabCare },
+    { key: "addons", label: T.priceTabAddons },
+  ];
+  const tabsHtml = tabs.map(t =>
+    `<button type="button" class="pl-tab${t.key === category ? " active" : ""}" data-cat="${t.key}">${t.label}</button>`
+  ).join("");
+
+  const controlsHtml = `
+    <div class="pl-controls">
+      <div class="pl-search-wrap">
+        <span class="pl-search-ic">🔎</span>
+        <input class="pl-search" type="text" placeholder="${T.priceSearch}" value="${search.replace(/"/g, "&quot;")}" />
+      </div>
+      <div class="pl-tabs">${tabsHtml}</div>
+    </div>
+  `;
+
+  let bodyHtml = "";
+
+  if (category === "addons") {
+    const filtered = data.additional.filter(a => breedMatches(a.name, search));
+    if (filtered.length === 0) {
+      bodyHtml = `<div class="pl-empty">${T.priceNoMatch}</div>`;
+    } else {
+      bodyHtml = `<div class="addons-list">` + filtered.map(a => `
+        <div class="addon-row">
+          <span class="ar-name">${a.name}</span>
+          <span class="ar-price">${priceCell(a.price)}</span>
+        </div>
+      `).join("") + `</div>`;
+    }
+  } else {
+    const filtered = data.rows.filter(r => breedMatches(r.breed, search));
+    const current = filtered.find(r => isCurrentBreed(r.breed));
+    const others  = filtered.filter(r => r !== current);
+
+    if (filtered.length === 0) {
+      bodyHtml = `<div class="pl-empty">${T.priceNoMatch}</div>`;
+    } else if (category === "all") {
+      const currentBlock = current ? `
+        <div class="pl-section-title">${T.priceYourBreed}</div>
+        ${breedCardFull(current, data.columns, { current: true })}
+        <div class="pl-section-title">${T.priceOtherBreeds}</div>
+      ` : "";
+      const cards = others.map(r => breedCardFull(r, data.columns)).join("");
+      bodyHtml = currentBlock + cards;
+    } else {
+      const field = category; // "full" | "bath" | "care"
+      const currentBlock = current ? `
+        <div class="pl-section-title">${T.priceYourBreed}</div>
+        ${breedRowSingle(current, field)}
+        <div class="pl-section-title">${T.priceOtherBreeds}</div>
+      ` : "";
+      const rows = others
+        .filter(r => parsePriceParts(r[field]).empty === false)
+        .map(r => breedRowSingle(r, field))
+        .join("");
+      bodyHtml = currentBlock + `<div class="breed-rows">${rows}</div>`;
+    }
+  }
+
+  block.innerHTML = `
+    ${controlsHtml}
+    <div class="pl-body">${bodyHtml}</div>
+    <div class="pl-footer">${T.priceLoyaltyHint}</div>
+  `;
+
+  // bind
+  block.querySelectorAll(".pl-tab").forEach(btn => {
+    btn.addEventListener("click", e => {
+      priceListState.category = btn.dataset.cat;
+      renderPriceList();
+    });
+  });
+  const inp = block.querySelector(".pl-search");
+  if (inp) {
+    inp.addEventListener("input", e => {
+      priceListState.search = e.target.value;
+      // re-render preserving focus + caret
+      const caret = inp.selectionStart;
+      renderPriceList();
+      const newInp = $("#price-rows .pl-search");
+      if (newInp) { newInp.focus(); try { newInp.setSelectionRange(caret, caret); } catch (e) {} }
+    });
+    // tapping inside the input shouldn't toggle <details>
+    inp.addEventListener("click", e => e.stopPropagation());
+  }
+}
+
 async function loadPriceRows() {
   const block = $("#price-rows");
   if (!block) return;
-  const petBreed = (block.dataset.breed || "").toLowerCase();
+  priceListState.breedKey = (block.dataset.breed || "").toLowerCase();
+  priceListState.category = "all";
+  priceListState.search = "";
   try {
     const data = await api(`/api/services?lang=${currentLang}`);
-    const eligibleBadge = currentLang === "pl" ? "karta" : "лояльн.";
-    const rows = data.rows.map(r => {
-      const isCurrent = petBreed && (
-        r.breed.toLowerCase().includes(petBreed) || petBreed.includes(r.breed.toLowerCase())
-      );
-      const badge = r.eligible ? `<span class="badge" title="karta stałego klienta">★</span>` : "";
-      return `<div class="pl-row ${isCurrent ? "current" : ""}">
-        <div class="svc">${r.breed}${badge}</div>
-        <div class="pr">${r.full}</div>
-        <div class="pr">${r.bath}</div>
-        <div class="pr">${r.care}</div>
-      </div>`;
-    }).join("");
-    const addons = data.additional.map(a => `
-      <div class="pl-row">
-        <div class="svc">${a.name}</div>
-        <div class="pr">${a.price}</div>
-      </div>
-    `).join("");
-    block.innerHTML = `
-      <div class="pl-row head">
-        <div class="svc">${currentLang === "pl" ? "Rasa" : "Порода"}</div>
-        <div class="pr">${data.columns[0]}</div>
-        <div class="pr">${data.columns[1]}</div>
-        <div class="pr">${data.columns[2]}</div>
-      </div>
-      ${rows}
-      <div class="additional">
-        <div class="pl-row head">
-          <div class="svc">${currentLang === "pl" ? "Usługi dodatkowe" : "Додаткові послуги"}</div>
-          <div class="pr">${currentLang === "pl" ? "Cena" : "Ціна"}</div>
-        </div>
-        ${addons}
-      </div>
-      <div style="font-size:11px; color:var(--text-soft); padding-top:8px; line-height:1.4;">
-        ★ — ${currentLang === "pl" ? "rasa kwalifikuje się do karty stałego klienta (każde 5. strzyżenie −10%, każde 10. −25%)" : "порода доступна для картки постійного клієнта (кожна 5-та −10%, 10-та −25%)"}
-      </div>
-    `;
+    priceListState.data = data;
+    renderPriceList();
   } catch (e) {
     block.textContent = "—";
   }
