@@ -6,16 +6,17 @@ from datetime import date, timedelta
 import aiosqlite
 
 GROOMER_DEFS = [
-    {"name": "Анна",    "color": "#1f7a4d"},
-    {"name": "Марта",   "color": "#7c3aed"},
-    {"name": "Катерина","color": "#0284c7"},
+    {"name": "Ivanka",    "color": "#8B5E3C", "role": "owner",   "is_admin": 1},  # власниця, повний доступ
+    {"name": "Ola",       "color": "#D18D7A", "role": "groomer", "is_admin": 0},
+    {"name": "Marcin",    "color": "#6F7267", "role": "groomer", "is_admin": 0},
+    {"name": "Anastazja", "color": "#B89F85", "role": "groomer", "is_admin": 0},
 ]
 
 CLIENTS = [
     {
         "owner": {"name": "Anna Kowalska",   "phone": "+48 501 234 567", "telegram_id": None, "language": "pl"},
         "pet": {
-            "name": "Sam", "breed": "Pitbull",
+            "name": "Sam", "breed": "Yorkshire terrier",
             "birthday": (date.today() + timedelta(days=3)).replace(year=2020).isoformat(),
             "photo_url": "/static/img/sam.svg",
             "allergies": "Куряче м'ясо, блохозахисні препарати",
@@ -96,8 +97,8 @@ async def seed_data(db_file: str):
         groomer_ids = []
         for g in GROOMER_DEFS:
             cur = await conn.execute(
-                "INSERT INTO groomers (name, color) VALUES (?,?)",
-                (g["name"], g["color"]),
+                "INSERT INTO groomers (name, color, role, is_admin) VALUES (?,?,?,?)",
+                (g["name"], g["color"], g.get("role", "groomer"), g.get("is_admin", 0)),
             )
             groomer_ids.append(cur.lastrowid)
 

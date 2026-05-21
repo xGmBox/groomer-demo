@@ -52,31 +52,116 @@ SALON_HOURS = {
 }
 GROOMER_TELEGRAM = os.getenv("GROOMER_TELEGRAM", "anna_groomer")
 
-# ── Каталог послуг (S/M/L ціни в PLN, тривалість у хвилинах) ─────────────────
-SERVICES = [
-    {"key": "full",       "name_uk": "Повне грумування",         "name_pl": "Pełne grooming",
-     "price_s": 120, "price_m": 180, "price_l": 240, "duration_min": 120},
-    {"key": "bath_cut",   "name_uk": "Купання + стрижка",        "name_pl": "Kąpiel + strzyżenie",
-     "price_s": 90,  "price_m": 150, "price_l": 200, "duration_min": 90},
-    {"key": "bath_dry",   "name_uk": "Купання + сушка",          "name_pl": "Kąpiel + suszenie",
-     "price_s": 60,  "price_m": 100, "price_l": 160, "duration_min": 60},
-    {"key": "nails",      "name_uk": "Стрижка кігтів",           "name_pl": "Obcięcie pazurów",
-     "price_s": 25,  "price_m": 30,  "price_l": 40,  "duration_min": 15},
-    {"key": "deshed",     "name_uk": "Вичісування / фурмінатор", "name_pl": "Furminator / wyczesywanie",
-     "price_s": 70,  "price_m": 110, "price_l": 150, "duration_min": 60},
+# ── Прайс-лист Imperial Dog (3 послуги × порода). eligible=True → karta stałego klienta ──
+PRICE_LIST = [
+    {"breed_pl": "Yorkshire terrier",       "breed_uk": "Йоркширський тер'єр",
+     "full": "170 zł",     "bath": "60-70 zł",  "care": "100 zł",     "eligible": True},
+    {"breed_pl": "Shih tzu",                "breed_uk": "Ши-тцу",
+     "full": "190 zł",     "bath": "70 zł",     "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Lhasa apso",              "breed_uk": "Лхаса апсо",
+     "full": "190-200 zł", "bath": "70 zł",     "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Maltańczyk",              "breed_uk": "Мальтійський бішон",
+     "full": "190 zł",     "bath": "70 zł",     "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Coton de tulear",         "breed_uk": "Котон де тулеар",
+     "full": "190-200 zł", "bath": "70 zł",     "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Bolończyk",               "breed_uk": "Болонка",
+     "full": "190-200 zł", "bath": "70 zł",     "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Pekińczyk",               "breed_uk": "Пекінес",
+     "full": "180-190 zł", "bath": "50-70 zł",  "care": "90 zł",      "eligible": True},
+    {"breed_pl": "Pudel toy / miniatura",   "breed_uk": "Пудель той / міні",
+     "full": "200-220 zł", "bath": "80-100 zł", "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Pudel średni",            "breed_uk": "Пудель середній",
+     "full": "220-250 zł", "bath": "130 zł",    "care": "150-170 zł", "eligible": True},
+    {"breed_pl": "Pudel duży",              "breed_uk": "Пудель великий",
+     "full": "120 zł/godz","bath": "100 zł/godz","care": "100 zł/godz","eligible": True},
+    {"breed_pl": "Bichon frise",            "breed_uk": "Бішон фризе",
+     "full": "200-240 zł", "bath": "90-100 zł", "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Maltipoo",                "breed_uk": "Мальтіпу",
+     "full": "200 zł",     "bath": "70-80 zł",  "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Chiński grzywacz",        "breed_uk": "Китайський чубатий",
+     "full": "190 zł",     "bath": "70 zł",     "care": "100-150 zł", "eligible": True},
+    {"breed_pl": "Chihuahua długowłosy",    "breed_uk": "Чихуахуа довгошерсний",
+     "full": "170 zł",     "bath": "50-70 zł",  "care": "—",          "eligible": True},
+    {"breed_pl": "Chihuahua krótkowłosa",   "breed_uk": "Чихуахуа короткошерсний",
+     "full": "130-140 zł", "bath": "50 zł",     "care": "—",          "eligible": True},
+    {"breed_pl": "Papillon",                "breed_uk": "Папільйон",
+     "full": "170-180 zł", "bath": "50-70 zł",  "care": "—",          "eligible": True},
+    {"breed_pl": "Szpic miniaturowy",       "breed_uk": "Шпіц мініатюрний",
+     "full": "160-180 zł", "bath": "70-80 zł",  "care": "—",          "eligible": True},
+    {"breed_pl": "Sznaucer miniatura",      "breed_uk": "Шнауцер міні",
+     "full": "200 zł / 120 zł/godz", "bath": "70-80 zł", "care": "100-150 zł", "eligible": False},
+    {"breed_pl": "Sznaucer średni",         "breed_uk": "Шнауцер середній",
+     "full": "220 zł / 120 zł/godz", "bath": "80-100 zł", "care": "150 zł", "eligible": False},
+    {"breed_pl": "Sznaucer olbrzym",        "breed_uk": "Шнауцер гігант",
+     "full": "120 zł/godz", "bath": "100 zł/godz", "care": "100 zł/godz", "eligible": False},
+    {"breed_pl": "West highland white terrier", "breed_uk": "Вест-хайленд",
+     "full": "200 zł / 120 zł/godz", "bath": "80 zł", "care": "150 zł", "eligible": False},
+    {"breed_pl": "Terier szkocki",          "breed_uk": "Шотландський тер'єр",
+     "full": "200-220 zł / 120 zł/godz", "bath": "80 zł", "care": "100-150 zł", "eligible": False},
+    {"breed_pl": "Jamnik szorstkowłosy",    "breed_uk": "Такса жорсткошерста",
+     "full": "190 zł / 120 zł/godz", "bath": "70 zł", "care": "—", "eligible": False},
+    {"breed_pl": "Jack/Parson Russell terrier", "breed_uk": "Джек-рассел тер'єр",
+     "full": "120 zł/godz", "bath": "70 zł", "care": "—", "eligible": False},
+    {"breed_pl": "Cocker spaniel angielski","breed_uk": "Англійський кокер-спанієль",
+     "full": "200-250 zł / 120 zł/godz", "bath": "100 zł", "care": "150-170 zł", "eligible": False},
+    {"breed_pl": "Cocker spaniel amerykański", "breed_uk": "Американський кокер-спанієль",
+     "full": "200-250 zł / 120 zł/godz", "bath": "100 zł", "care": "150-170 zł", "eligible": False},
+    {"breed_pl": "Kawaler King Charles spaniel", "breed_uk": "Кавалер кінг чарльз спанієль",
+     "full": "200-250 zł", "bath": "100 zł",    "care": "150 zł",     "eligible": True},
+    {"breed_pl": "Foxterrier",              "breed_uk": "Фокстер'єр",
+     "full": "200-220 zł / 120 zł/godz", "bath": "80 zł", "care": "100-150 zł", "eligible": False},
+    {"breed_pl": "Airedale terrier",        "breed_uk": "Ердельтер'єр",
+     "full": "220-250 zł / 120 zł/godz", "bath": "100 zł/godz", "care": "100 zł/godz", "eligible": False},
+    {"breed_pl": "Czarny terrier rosyjski", "breed_uk": "Російський чорний тер'єр",
+     "full": "120 zł/godz", "bath": "100 zł/godz", "care": "100 zł/godz", "eligible": False},
+    {"breed_pl": "Beagle",                  "breed_uk": "Бігль",
+     "full": "180 zł",     "bath": "—",         "care": "—",          "eligible": True},
+    {"breed_pl": "Buldog angielski",        "breed_uk": "Англійський бульдог",
+     "full": "180-190 zł", "bath": "—",         "care": "—",          "eligible": True},
+    {"breed_pl": "Buldog francuski",        "breed_uk": "Французький бульдог",
+     "full": "140 zł",     "bath": "—",         "care": "—",          "eligible": True},
+    {"breed_pl": "Mops",                    "breed_uk": "Мопс",
+     "full": "140 zł",     "bath": "—",         "care": "—",          "eligible": True},
+    {"breed_pl": "Golden retriever",        "breed_uk": "Голден-ретривер",
+     "full": "120 zł/godz", "bath": "—",        "care": "—",          "eligible": False},
+    {"breed_pl": "Labrador retriever",      "breed_uk": "Лабрадор-ретривер",
+     "full": "200 zł",     "bath": "—",         "care": "—",          "eligible": False},
+    {"breed_pl": "Owczarek niemiecki",      "breed_uk": "Німецька вівчарка",
+     "full": "120 zł/godz", "bath": "—",        "care": "—",          "eligible": False},
+    {"breed_pl": "Husky",                   "breed_uk": "Хаскі",
+     "full": "120 zł/godz", "bath": "—",        "care": "—",          "eligible": False},
+    {"breed_pl": "Akita Inu",               "breed_uk": "Акіта-іну",
+     "full": "200-240 zł", "bath": "—",         "care": "—",          "eligible": False},
+    {"breed_pl": "Samoyed",                 "breed_uk": "Самоїд",
+     "full": "120 zł/godz", "bath": "—",        "care": "—",          "eligible": False},
+    {"breed_pl": "Pieski bezrasowe do 5 kg","breed_uk": "Метиси до 5 кг",
+     "full": "180-190 zł", "bath": "70 zł",     "care": "100-150 zł", "eligible": True},
+    {"breed_pl": "Pieski bezrasowe do 15 kg","breed_uk": "Метиси до 15 кг",
+     "full": "190-200 zł", "bath": "—",         "care": "—",          "eligible": True},
+    {"breed_pl": "Pieski bezrasowe od 15 kg","breed_uk": "Метиси понад 15 кг",
+     "full": "120 zł/godz", "bath": "—",        "care": "—",          "eligible": True},
 ]
 
-BREED_SIZE = {  # дефолтний розмір по породі для авто-цін
-    "pudel": "m", "pitbull": "l", "shiba": "m",
-    "shih": "s", "german shepherd": "l", "yorkshire": "s",
-}
+ADDITIONAL_SERVICES = [
+    {"name_pl": "Obcinanie pazurków (mały pies)", "name_uk": "Стрижка кігтів (малий)", "price": "20 zł"},
+    {"name_pl": "Obcinanie pazurków (duży pies)", "name_uk": "Стрижка кігтів (великий)", "price": "30 zł"},
+    {"name_pl": "Rozczesywanie kołtunów",         "name_uk": "Розчісування ковтунів",    "price": "100 zł/godz"},
+    {"name_pl": "Mycie zębów",                    "name_uk": "Чистка зубів",             "price": "20 zł"},
+]
 
-def size_for_breed(breed: str | None) -> str:
-    b = (breed or "").lower()
-    for k, sz in BREED_SIZE.items():
-        if k in b:
-            return sz
-    return "m"
+
+def breed_eligible_for_loyalty(breed: str | None) -> bool:
+    if not breed:
+        return False
+    b = breed.lower().strip()
+    for item in PRICE_LIST:
+        if not item.get("eligible"):
+            continue
+        if item["breed_pl"].lower() in b or b in item["breed_pl"].lower():
+            return True
+        if item["breed_uk"].lower() in b or b in item["breed_uk"].lower():
+            return True
+    return False
 
 # ── Схема ────────────────────────────────────────────────────────────────────
 SCHEMA = """
@@ -153,6 +238,8 @@ async def db_init():
             "ALTER TABLE reminders ADD COLUMN groomer_id INTEGER",
             "ALTER TABLE reminders ADD COLUMN confirmation_status TEXT",
             "ALTER TABLE reminders ADD COLUMN requested_by_owner INTEGER DEFAULT 0",
+            "ALTER TABLE groomers ADD COLUMN is_admin INTEGER DEFAULT 0",
+            "ALTER TABLE groomers ADD COLUMN role TEXT DEFAULT 'groomer'",
         ]:
             try:
                 await conn.execute(sql)
@@ -195,25 +282,31 @@ def days_until_birthday(birthday: str | None) -> int | None:
     return (this_year - today).days
 
 
-def loyalty_info(visit_count: int) -> dict:
-    """Розраховує статус програми лояльності. Мілстоуни: 5-та і 10-та стрижки."""
+def loyalty_info(visit_count: int, breed: str | None = None) -> dict:
+    """Karta stałego klienta: 5-та стрижка -10%, 10-та стрижка -25%.
+    Доступна тільки для еліґібельних порід (yellow у прайсі)."""
+    eligible = breed_eligible_for_loyalty(breed)
+    base = {"visit_count": visit_count, "eligible": eligible}
+    if not eligible:
+        return {**base, "cycle_position": 0, "next_milestone": 0,
+                "visits_to_milestone": 0, "milestone_reached": False, "milestone_discount": 0}
     if visit_count == 0:
-        return {"visit_count": 0, "cycle_position": 0, "next_milestone": 5,
+        return {**base, "cycle_position": 0, "next_milestone": 5,
                 "visits_to_milestone": 5, "milestone_reached": False, "milestone_discount": 10}
     cycle = visit_count % 10
     if cycle == 0:
-        return {"visit_count": visit_count, "cycle_position": 10, "next_milestone": visit_count,
-                "visits_to_milestone": 0, "milestone_reached": True, "milestone_discount": 15}
+        return {**base, "cycle_position": 10, "next_milestone": visit_count,
+                "visits_to_milestone": 0, "milestone_reached": True, "milestone_discount": 25}
     if cycle == 5:
-        return {"visit_count": visit_count, "cycle_position": 5, "next_milestone": visit_count,
+        return {**base, "cycle_position": 5, "next_milestone": visit_count,
                 "visits_to_milestone": 0, "milestone_reached": True, "milestone_discount": 10}
     if cycle < 5:
-        return {"visit_count": visit_count, "cycle_position": cycle,
+        return {**base, "cycle_position": cycle,
                 "next_milestone": visit_count + (5 - cycle), "visits_to_milestone": 5 - cycle,
                 "milestone_reached": False, "milestone_discount": 10}
-    return {"visit_count": visit_count, "cycle_position": cycle,
+    return {**base, "cycle_position": cycle,
             "next_milestone": visit_count + (10 - cycle), "visits_to_milestone": 10 - cycle,
-            "milestone_reached": False, "milestone_discount": 15}
+            "milestone_reached": False, "milestone_discount": 25}
 
 
 async def pet_full(conn, pet_id: int) -> dict[str, Any] | None:
@@ -246,7 +339,7 @@ async def pet_full(conn, pet_id: int) -> dict[str, Any] | None:
     else:
         pet["weeks_since_last_visit"] = None
     pet["visit_count"] = len(visits)
-    pet["loyalty"] = loyalty_info(len(visits))
+    pet["loyalty"] = loyalty_info(len(visits), pet.get("breed"))
     return pet
 
 
@@ -356,16 +449,28 @@ async def api_groomers():
 
 @app.get("/api/services")
 async def api_services(lang: str = "uk"):
-    key_name = "name_pl" if lang == "pl" else "name_uk"
-    return [
-        {
-            "key": s["key"],
-            "name": s[key_name],
-            "price_s": s["price_s"], "price_m": s["price_m"], "price_l": s["price_l"],
-            "duration_min": s["duration_min"],
-        }
-        for s in SERVICES
-    ]
+    breed_key = "breed_pl" if lang == "pl" else "breed_uk"
+    name_key  = "name_pl"  if lang == "pl" else "name_uk"
+    col_uk = ["Повне грумування", "Купання + косметика", "Догляд"]
+    col_pl = ["Pełne grooming",   "Kąpiel + kosmetyka",  "Pielęgnacje"]
+    columns = col_pl if lang == "pl" else col_uk
+    return {
+        "columns": columns,
+        "rows": [
+            {
+                "breed": r[breed_key],
+                "full": r["full"],
+                "bath": r["bath"],
+                "care": r["care"],
+                "eligible": r["eligible"],
+            }
+            for r in PRICE_LIST
+        ],
+        "additional": [
+            {"name": r[name_key], "price": r["price"]}
+            for r in ADDITIONAL_SERVICES
+        ],
+    }
 
 
 class ConfirmIn(BaseModel):
@@ -424,7 +529,7 @@ async def api_pets():
                 "SELECT COUNT(*) FROM visits WHERE pet_id=?", (p["id"],)
             )).fetchone()
             p["visit_count"] = cnt[0] if cnt else 0
-            p["loyalty"] = loyalty_info(p["visit_count"])
+            p["loyalty"] = loyalty_info(p["visit_count"], p.get("breed"))
             pets.append(p)
         return pets
     finally:

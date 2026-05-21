@@ -328,6 +328,16 @@ function roleToggleBtn() {
   return `<button class="role-toggle" onclick="switchRole('${other}')">↔ ${label}</button>`;
 }
 
+function groomerSelfBtn() {
+  if (role !== "groomer" || !currentGroomer) return "";
+  const initial = currentGroomer.name.charAt(0);
+  const adminBadge = currentGroomer.is_admin ? "👑" : "";
+  return `<button class="groomer-self-chip" onclick="switchGroomerSelf()" title="Switch groomer">
+    <span class="gs-avatar" style="background:${currentGroomer.color};">${initial}</span>
+    <span class="gs-name">${currentGroomer.name} ${adminBadge}</span>
+  </button>`;
+}
+
 function langToggleBtn() {
   if (role !== "owner") return "";
   const other = currentLang === "uk" ? "pl" : "uk";
@@ -366,6 +376,7 @@ function header({ title, backFn = "" } = {}) {
         : `<h1>${title}</h1>`}
       <div class="header-actions">
         ${langToggleBtn()}
+        ${groomerSelfBtn()}
         ${roleToggleBtn()}
       </div>
     </div>
@@ -375,7 +386,21 @@ function header({ title, backFn = "" } = {}) {
 // ── Loyalty card ─────────────────────────────────────────────────────────────
 function loyaltyCard(loyalty) {
   if (!loyalty) return "";
-  const { cycle_position, visits_to_milestone, milestone_reached, milestone_discount, visit_count } = loyalty;
+  const { cycle_position, visits_to_milestone, milestone_reached, milestone_discount, visit_count, eligible } = loyalty;
+
+  // Якщо порода не еліґібельна — показуємо інформативну заглушку
+  if (eligible === false) {
+    const text = currentLang === "pl"
+      ? "Karta stałego klienta dostępna jest dla wybranych ras (Yorki, Maltańczyk, Pudel i inne — patrz cennik)."
+      : "Картка лояльності доступна для обраних порід (йорк, мальтезе, пудель та інші — див. прайс).";
+    return `
+      <div class="card loyalty-card not-eligible">
+        <div class="loyalty-title">${T.loyaltyTitle}</div>
+        <div class="loyalty-paws">${"🐾".repeat(5).split("").map(_ => '<span class="paw-icon">🐾</span>').join("")}</div>
+        <div class="loyalty-status" style="font-size:12px; line-height:1.4;">${text}</div>
+      </div>
+    `;
+  }
 
   // Display 10 paw icons; 5th (idx=4) and 10th (idx=9) are milestone positions
   const paws = Array.from({ length: 10 }, (_, i) => {
@@ -386,13 +411,24 @@ function loyaltyCard(loyalty) {
   }).join("");
 
   let statusHtml = "";
+  const pl = currentLang === "pl";
+  const cutWord = (n) => pl ? "strzyżeń" : plural(n, "стрижка", "стрижки", "стрижок");
   if (milestone_reached) {
-    statusHtml = `<div class="loyalty-milestone">Ця стрижка зі знижкою ${milestone_discount}%!</div>`;
+    const txt = pl
+      ? `To strzyżenie ze zniżką ${milestone_discount}%!`
+      : `Ця стрижка зі знижкою ${milestone_discount}%!`;
+    statusHtml = `<div class="loyalty-milestone">${txt}</div>`;
   } else if (visit_count === 0) {
-    statusHtml = `<div class="loyalty-status">Ще ${visits_to_milestone} ${plural(visits_to_milestone, "стрижка", "стрижки", "стрижок")} до першої знижки 10%</div>`;
+    const txt = pl
+      ? `Jeszcze ${visits_to_milestone} ${cutWord(visits_to_milestone)} do pierwszej zniżki 10%`
+      : `Ще ${visits_to_milestone} ${cutWord(visits_to_milestone)} до першої знижки 10%`;
+    statusHtml = `<div class="loyalty-status">${txt}</div>`;
   } else {
     const nextN = cycle_position < 5 ? 5 : 10;
-    statusHtml = `<div class="loyalty-status">${cycle_position} з ${nextN} — ще ${visits_to_milestone} ${plural(visits_to_milestone, "стрижка", "стрижки", "стрижок")} до знижки ${milestone_discount}%</div>`;
+    const txt = pl
+      ? `${cycle_position} z ${nextN} — jeszcze ${visits_to_milestone} ${cutWord(visits_to_milestone)} do zniżki ${milestone_discount}%`
+      : `${cycle_position} з ${nextN} — ще ${visits_to_milestone} ${cutWord(visits_to_milestone)} до знижки ${milestone_discount}%`;
+    statusHtml = `<div class="loyalty-status">${txt}</div>`;
   }
 
   return `
@@ -855,14 +891,8 @@ function renderOwnerPetCard(pet, showBack = false) {
 
     <details class="price-list" id="price-list">
       <summary>💰 ${T.priceListTitle}</summary>
-      <div class="price-table">
-        <div class="price-row head">
-          <div class="svc">${T.service}</div>
-          <div class="pr">${T.sizeS}</div>
-          <div class="pr">${T.sizeM}</div>
-          <div class="pr">${T.sizeL}</div>
-        </div>
-        <div id="price-rows" style="text-align:center; color:var(--text-soft); font-size:13px; padding:8px;">…</div>
+      <div id="price-rows" class="price-list-table" data-breed="${pet.breed || ""}">
+        <div style="text-align:center; color:var(--text-soft); font-size:13px; padding:8px;">…</div>
       </div>
     </details>
 
@@ -882,16 +912,47 @@ function renderOwnerPetCard(pet, showBack = false) {
 async function loadPriceRows() {
   const block = $("#price-rows");
   if (!block) return;
+  const petBreed = (block.dataset.breed || "").toLowerCase();
   try {
-    const services = await api(`/api/services?lang=${currentLang}`);
-    block.outerHTML = services.map(s => `
-      <div class="price-row">
-        <div class="svc">${s.name}</div>
-        <div class="pr">${s.price_s} zł</div>
-        <div class="pr">${s.price_m} zł</div>
-        <div class="pr">${s.price_l} zł</div>
+    const data = await api(`/api/services?lang=${currentLang}`);
+    const eligibleBadge = currentLang === "pl" ? "karta" : "лояльн.";
+    const rows = data.rows.map(r => {
+      const isCurrent = petBreed && (
+        r.breed.toLowerCase().includes(petBreed) || petBreed.includes(r.breed.toLowerCase())
+      );
+      const badge = r.eligible ? `<span class="badge" title="karta stałego klienta">★</span>` : "";
+      return `<div class="pl-row ${isCurrent ? "current" : ""}">
+        <div class="svc">${r.breed}${badge}</div>
+        <div class="pr">${r.full}</div>
+        <div class="pr">${r.bath}</div>
+        <div class="pr">${r.care}</div>
+      </div>`;
+    }).join("");
+    const addons = data.additional.map(a => `
+      <div class="pl-row">
+        <div class="svc">${a.name}</div>
+        <div class="pr">${a.price}</div>
       </div>
     `).join("");
+    block.innerHTML = `
+      <div class="pl-row head">
+        <div class="svc">${currentLang === "pl" ? "Rasa" : "Порода"}</div>
+        <div class="pr">${data.columns[0]}</div>
+        <div class="pr">${data.columns[1]}</div>
+        <div class="pr">${data.columns[2]}</div>
+      </div>
+      ${rows}
+      <div class="additional">
+        <div class="pl-row head">
+          <div class="svc">${currentLang === "pl" ? "Usługi dodatkowe" : "Додаткові послуги"}</div>
+          <div class="pr">${currentLang === "pl" ? "Cena" : "Ціна"}</div>
+        </div>
+        ${addons}
+      </div>
+      <div style="font-size:11px; color:var(--text-soft); padding-top:8px; line-height:1.4;">
+        ★ — ${currentLang === "pl" ? "rasa kwalifikuje się do karty stałego klienta (każde 5. strzyżenie −10%, każde 10. −25%)" : "порода доступна для картки постійного клієнта (кожна 5-та −10%, 10-та −25%)"}
+      </div>
+    `;
   } catch (e) {
     block.textContent = "—";
   }
@@ -900,13 +961,14 @@ async function loadPriceRows() {
 window.openOwnerBooking = async (petId) => {
   const tomorrow = new Date(Date.now() + 86400000);
   const iso = isoDate(tomorrow);
-  const [services, groomers] = await Promise.all([
+  const [svcData, groomers] = await Promise.all([
     api(`/api/services?lang=${currentLang}`),
     api("/api/groomers"),
   ]);
-  const svcOptions = services.map(s =>
-    `<option value="${s.name}" data-s="${s.price_s}" data-m="${s.price_m}" data-l="${s.price_l}">${s.name}</option>`
-  ).join("");
+  // 3 категорії послуг (з columns) + список add-ons
+  const mainSvcs = svcData.columns.map(c => `<option value="${c}">${c}</option>`).join("");
+  const addonSvcs = svcData.additional.map(a => `<option value="${a.name}">${a.name} — ${a.price}</option>`).join("");
+  const svcOptions = mainSvcs + addonSvcs;
   const grOptions = `<option value="">${T.bookAnyGroomer}</option>` +
     groomers.map(g => `<option value="${g.id}">${g.name}</option>`).join("");
 
@@ -1021,10 +1083,74 @@ window.openPhotoSheet = (src, label) => {
 
 let groomerTab = "all";
 let groomerSearch = "";
+let currentGroomer = null; // { id, name, color, is_admin }
+
+function loadGroomerSelf() {
+  try {
+    const raw = localStorage.getItem("groomer_self");
+    if (raw) currentGroomer = JSON.parse(raw);
+  } catch (e) {}
+}
+function saveGroomerSelf(g) {
+  currentGroomer = g;
+  localStorage.setItem("groomer_self", JSON.stringify(g));
+}
+window.switchGroomerSelf = () => {
+  localStorage.removeItem("groomer_self");
+  currentGroomer = null;
+  groomerTab = "all";
+  render();
+};
+
+async function renderGroomerSelector() {
+  const groomers = await api("/api/groomers");
+  app.innerHTML = `
+    ${header({ title: window.SALON.name })}
+    <div class="hero" style="text-align:center;">
+      <img class="landing-logo" src="${window.SALON.logoColor}" alt="${window.SALON.name}">
+      <h2>${window.SALON.name}</h2>
+      <p style="opacity:0.92;">Хто ви?</p>
+    </div>
+    <div style="padding: 0 14px; display:flex; flex-direction:column; gap:10px;">
+      ${groomers.map(g => `
+        <div class="card" style="cursor:pointer; padding:16px; display:flex; align-items:center; gap:14px;"
+             onclick="pickGroomerSelf(${g.id})">
+          <div style="width:46px;height:46px;border-radius:50%;background:${g.color};
+                      display:grid;place-items:center;color:white;font-size:18px;font-weight:700;flex-shrink:0;">
+            ${g.name.charAt(0)}
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:16px;">${g.name}</div>
+            <div style="font-size:13px;color:var(--text-soft);">
+              ${g.is_admin ? "Власник · повний доступ" : "Грумер"}
+            </div>
+          </div>
+          ${g.is_admin ? `<span class="chip accent" style="flex-shrink:0;">👑 Admin</span>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+window.pickGroomerSelf = async (id) => {
+  const groomers = await api("/api/groomers");
+  const g = groomers.find(x => x.id === id);
+  if (g) {
+    saveGroomerSelf(g);
+    render();
+  }
+};
 
 async function renderGroomer() {
+  if (!currentGroomer) return renderGroomerSelector();
   if (groomerTab === "schedule") return renderSchedule();
-  if (groomerTab === "analytics") return renderAnalytics();
+  if (groomerTab === "analytics") {
+    if (!currentGroomer.is_admin) {
+      groomerTab = "all";
+      return renderGroomer();
+    }
+    return renderAnalytics();
+  }
 
   const pets = await api("/api/pets");
 
@@ -1062,7 +1188,7 @@ async function renderGroomer() {
       ${tabBtn("birthdays", T.tabBirthdays)}
       ${tabBtn("followup", T.tabFollowup)}
       ${tabBtn("schedule", T.tabSchedule)}
-      ${tabBtn("analytics", T.tabAnalytics)}
+      ${currentGroomer?.is_admin ? tabBtn("analytics", T.tabAnalytics) : ""}
     </div>
 
     <div id="pet-list">
@@ -1237,6 +1363,10 @@ async function renderSchedule() {
   app.innerHTML = `<div class="loading">${T.loading}</div>`;
 
   const data = await api(`/api/schedule?date=${scheduleDate}`);
+  // Non-admin grommers see only their own column
+  if (currentGroomer && !currentGroomer.is_admin) {
+    data.groomers = data.groomers.filter(g => g.id === currentGroomer.id);
+  }
 
   // Стрічка дат: сьогодні ± 3 дні
   const today = new Date();
@@ -1707,6 +1837,7 @@ window.renderOwnerDemoLanding = renderOwnerDemoLanding;
 })();
 
 // ── СТАРТ ──────────────────────────────────────────────────────────────────
+loadGroomerSelf();
 render().catch(e => {
   app.innerHTML = `<div class="loading">Помилка: ${e.message}</div>`;
 });
