@@ -239,6 +239,25 @@ const LANG_PL = {
   qFinishTitle: "Gotowe! 🎉",
   qFinishSub: "Karta utworzona. Wyślemy przypomnienie dzień przed wizytą.",
   qFinishContinue: "Przejdź do karty",
+
+  // Groomer-side labels
+  tabAll: "Wszystkie",
+  tabToday: "Dziś",
+  tabBirthdays: "Urodziny",
+  tabFollowup: "Termin",
+  tabSchedule: "Grafik",
+  tabAnalytics: "Analityka",
+  addVisit: "+ Dodaj wizytę",
+  addVisitTitle: "Dodaj wizytę",
+  scheduleNext: "📅 Zaplanuj",
+  sendReminder: "📨 Przypomnij",
+  cutStyle: "Rodzaj strzyżenia",
+  photoBefore: "Zdjęcie przed",
+  photoAfter: "Zdjęcie po",
+  takePhoto: "📷 Zrób zdjęcie",
+  retakePhoto: "📷 Zmień zdjęcie",
+  reminderTitle: "Przypomnienie",
+  today: "Dziś",
 };
 
 // currentLang and T are initialized after `role` is parsed (see below)
@@ -267,7 +286,7 @@ let role = params.get("role") || "owner";
 let forceNew = params.get("new") === "1";
 
 // Owner UI is always PL; groomer UI stays in Ukrainian (internal team)
-let currentLang = (role === "owner") ? "pl" : (localStorage.getItem("lang") || "uk");
+let currentLang = (role === "owner") ? "pl" : (localStorage.getItem("lang") || "pl");
 
 const T = new Proxy({}, {
   get(_, key) {
@@ -1409,8 +1428,8 @@ function visitItemGroomer(v) {
   const afterSrc = v.photo_url ? v.photo_url.replace(/'/g, "\\'") : "";
   const photos = (v.photo_before || v.photo_url)
     ? `<div class="visit-photos">
-        ${v.photo_before ? `<div class="visit-photo-wrap"><span class="photo-lbl">До</span><img src="${v.photo_before}" onclick="openPhotoSheet('${beforeSrc}', 'До')"></div>` : ""}
-        ${v.photo_url    ? `<div class="visit-photo-wrap"><span class="photo-lbl">Після</span><img src="${v.photo_url}" onclick="openPhotoSheet('${afterSrc}', 'Після')"></div>` : ""}
+        ${v.photo_before ? `<div class="visit-photo-wrap"><span class="photo-lbl">Przed</span><img src="${v.photo_before}" onclick="openPhotoSheet('${beforeSrc}', 'Przed')"></div>` : ""}
+        ${v.photo_url    ? `<div class="visit-photo-wrap"><span class="photo-lbl">Po</span><img src="${v.photo_url}" onclick="openPhotoSheet('${afterSrc}', 'Po')"></div>` : ""}
        </div>`
     : "";
   return `
@@ -1470,7 +1489,7 @@ async function renderGroomerSelector() {
     <div class="hero" style="text-align:center;">
       <img class="landing-logo" src="${window.SALON.logoColor}" alt="${window.SALON.name}">
       <h2>${window.SALON.name}</h2>
-      <p style="opacity:0.92;">Хто ви?</p>
+      <p style="opacity:0.92;">Kim jesteś?</p>
     </div>
     <div style="padding: 0 14px; display:flex; flex-direction:column; gap:10px;">
       ${groomers.map(g => `
@@ -1483,7 +1502,7 @@ async function renderGroomerSelector() {
           <div style="flex:1;">
             <div style="font-weight:700;font-size:16px;">${g.name}</div>
             <div style="font-size:13px;color:var(--text-soft);">
-              ${g.is_admin ? "Власник · повний доступ" : "Грумер"}
+              ${g.is_admin ? "Właściciel · pełny dostęp" : "Groomer"}
             </div>
           </div>
           ${g.is_admin ? `<span class="chip accent" style="flex-shrink:0;">👑 Admin</span>` : ""}
@@ -1610,20 +1629,20 @@ function petCardHTML(p) {
 
   const chips = [];
   if (p.days_to_birthday !== null && p.days_to_birthday <= 14) {
-    chips.push(`<span class="chip accent">🎂 ${p.days_to_birthday === 0 ? "Сьогодні!" : `ДН за ${p.days_to_birthday} ${plural(p.days_to_birthday, "день", "дні", "днів")}`}</span>`);
+    chips.push(`<span class="chip accent">🎂 ${p.days_to_birthday === 0 ? "Dzisiaj!" : T.birthdayDays(p.days_to_birthday)}</span>`);
   }
   if (p.allergies) {
-    chips.push(`<span class="chip warning">⚠ Алергії</span>`);
+    chips.push(`<span class="chip warning">⚠ ${T.allergies}</span>`);
   }
   if (p.next_visit) {
     chips.push(`<span class="chip">📅 ${fmtNextVisit(p.next_visit.scheduled_for)}</span>`);
   } else if (p.weeks_since_last_visit !== null && p.weeks_since_last_visit >= (p.followup_weeks || 6)) {
-    chips.push(`<span class="chip danger">⏰ ${p.weeks_since_last_visit} тиж. без візиту</span>`);
+    chips.push(`<span class="chip danger">⏰ ${p.weeks_since_last_visit} tyg. bez wizyty</span>`);
   } else if (p.weeks_since_last_visit !== null) {
-    chips.push(`<span class="chip muted">Останній: ${p.weeks_since_last_visit} тиж. тому</span>`);
+    chips.push(`<span class="chip muted">Ostatni: ${p.weeks_since_last_visit} tyg. temu</span>`);
   }
   if (p.loyalty?.milestone_reached) {
-    chips.push(`<span class="chip loyalty-chip">🎁 Знижка ${p.loyalty.milestone_discount}%</span>`);
+    chips.push(`<span class="chip loyalty-chip">🎁 Zniżka ${p.loyalty.milestone_discount}%</span>`);
   }
 
   return `
@@ -1672,7 +1691,7 @@ function renderPetDetail(pet) {
         <div class="info-row" onclick="window.location.href='tel:${pet.owner.phone}'">
           <div class="ic">📞</div>
           <div class="label-block">
-            <div class="lbl">Телефон</div>
+            <div class="lbl">Telefon</div>
             <div class="val">${pet.owner.phone}</div>
           </div>
         </div>` : ""}
@@ -1680,8 +1699,8 @@ function renderPetDetail(pet) {
         <div class="info-row">
           <div class="ic">🎂</div>
           <div class="label-block">
-            <div class="lbl">День народження</div>
-            <div class="val">${fmtDate(pet.birthday)}${pet.days_to_birthday !== null && pet.days_to_birthday <= 30 ? ` (через ${pet.days_to_birthday} ${plural(pet.days_to_birthday, "день","дні","днів")})` : ""}</div>
+            <div class="lbl">Data urodzenia</div>
+            <div class="val">${fmtDate(pet.birthday)}${pet.days_to_birthday !== null && pet.days_to_birthday <= 30 ? ` (za ${pet.days_to_birthday} ${pet.days_to_birthday === 1 ? "dzień" : "dni"})` : ""}</div>
           </div>
         </div>` : ""}
       ${pet.allergies ? `
@@ -1733,7 +1752,7 @@ function renderPetDetail(pet) {
 
     <div class="section-title">${T.history} (${pet.visits.length})</div>
     ${pet.visits.length === 0
-      ? `<div class="empty"><div class="ic">📋</div><p>Ще немає візитів</p></div>`
+      ? `<div class="empty"><div class="ic">📋</div><p>Brak wizyt</p></div>`
       : pet.visits.map(visitItemGroomer).join("")}
 
     <div class="action-bar">
@@ -1776,9 +1795,9 @@ async function renderSchedule() {
     const visitsHtml = visits.length === 0
       ? `<div class="schedule-free">Wolny dzień</div>`
       : visits.map(v => {
-          const reqChip = v.requested_by_owner ? `<span class="status-chip request">${T_BASE.statusRequest}</span>` : "";
+          const reqChip = v.requested_by_owner ? `<span class="status-chip request">${T.statusRequest}</span>` : "";
           const statusKey = "status" + ((v.confirmation_status || "pending").charAt(0).toUpperCase() + (v.confirmation_status || "pending").slice(1));
-          const sChip = `<span class="status-chip ${v.confirmation_status || "pending"}">${T_BASE[statusKey]}</span>`;
+          const sChip = `<span class="status-chip ${v.confirmation_status || "pending"}">${T[statusKey]}</span>`;
           return `
           <div class="schedule-item" onclick="showPet(${v.pet_id})">
             <div class="schedule-time">${fmtTime(v.scheduled_for)}</div>
@@ -2079,7 +2098,7 @@ window.openAddVisit = async (petId) => {
         <div class="row" style="margin-bottom:12px;">
           <label>${T.groomerLabel}</label>
           <select id="v-groomer">
-            <option value="">— Не призначено —</option>
+            <option value="">— Nie przydzielono —</option>
             ${groomers.map(g => `<option value="${g.id}">${g.name}</option>`).join("")}
           </select>
         </div>
@@ -2261,7 +2280,7 @@ window.openSchedule = async (petId) => {
         <div class="row" style="margin-bottom:12px;">
           <label>${T.groomerLabel}</label>
           <select id="s-groomer">
-            <option value="">— Не призначено —</option>
+            <option value="">— Nie przydzielono —</option>
             ${groomers.map(g => `<option value="${g.id}">${g.name}</option>`).join("")}
           </select>
         </div>
