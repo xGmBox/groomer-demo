@@ -8,8 +8,12 @@ services:
       - key: PORT
         value: 10000
       - key: SALON_NAME
-        value: Pawfect Studio
+        value: Imperial Dog Grooming & Spa
       - key: SALON_ADDRESS
-        value: ul. Kwiatowa 12, Warszawa
+        value: Zielonka, ul. Kolejowa 25
+      - key: SALON_TAGLINE
+        value: Grooming & Spa
+      - key: SALON_PHONE
+        value: "+48 519 356 900"
       - key: PYTHON_VERSION
         value: 3.11.9
