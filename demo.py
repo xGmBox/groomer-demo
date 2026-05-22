@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import traceback
-from collections import Counter, defaultdict
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -166,9 +166,11 @@ def breed_eligible_for_loyalty(breed: str | None) -> bool:
 # ── Схема ────────────────────────────────────────────────────────────────────
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS groomers (
-    id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    name  TEXT NOT NULL,
-    color TEXT DEFAULT '#1f7a4d'
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    name     TEXT NOT NULL,
+    color    TEXT DEFAULT '#8B5E3C',
+    is_admin INTEGER DEFAULT 0,
+    role     TEXT DEFAULT 'groomer'
 );
 
 CREATE TABLE IF NOT EXISTS owners (
@@ -176,46 +178,65 @@ CREATE TABLE IF NOT EXISTS owners (
     telegram_id  INTEGER UNIQUE,
     name         TEXT NOT NULL,
     phone        TEXT,
-    language     TEXT DEFAULT 'uk',
+    language     TEXT DEFAULT 'pl',
     created_at   TEXT DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS pets (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id        INTEGER REFERENCES owners(id) ON DELETE CASCADE,
-    name            TEXT NOT NULL,
-    breed           TEXT,
-    birthday        TEXT,
-    photo_url       TEXT,
-    allergies       TEXT,
-    preferred_cut   TEXT,
-    notes           TEXT,
-    followup_weeks  INTEGER DEFAULT 6,
-    created_at      TEXT DEFAULT (datetime('now','localtime'))
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id                INTEGER REFERENCES owners(id) ON DELETE CASCADE,
+    name                    TEXT NOT NULL,
+    breed                   TEXT,
+    birthday                TEXT,
+    photo_url               TEXT,
+    allergies               TEXT,
+    preferred_cut           TEXT,
+    notes                   TEXT,
+    followup_weeks          INTEGER DEFAULT 6,
+    perfumes_ok             INTEGER DEFAULT 1,
+    treats_ok               INTEGER DEFAULT 1,
+    health_notes            TEXT,
+    groomer_note_for_owner  TEXT,
+    internal_note           TEXT,
+    created_at              TEXT DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS visits (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    pet_id       INTEGER REFERENCES pets(id) ON DELETE CASCADE,
-    groomer_id   INTEGER REFERENCES groomers(id),
-    visit_date   TEXT NOT NULL,
-    service      TEXT,
-    cut_style    TEXT,
-    price        REAL,
-    notes        TEXT,
-    photo_before TEXT,
-    photo_url    TEXT,
-    created_at   TEXT DEFAULT (datetime('now','localtime'))
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    pet_id                  INTEGER REFERENCES pets(id) ON DELETE CASCADE,
+    groomer_id              INTEGER REFERENCES groomers(id),
+    visit_date              TEXT NOT NULL,
+    service                 TEXT,
+    services_json           TEXT,
+    cut_style               TEXT,
+    price                   REAL,
+    notes                   TEXT,
+    groomer_note_for_owner  TEXT,
+    internal_note           TEXT,
+    photo_before            TEXT,
+    photo_url               TEXT,
+    rating                  INTEGER,
+    rating_comment          TEXT,
+    created_at              TEXT DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    pet_id        INTEGER REFERENCES pets(id) ON DELETE CASCADE,
-    groomer_id    INTEGER REFERENCES groomers(id),
-    kind          TEXT NOT NULL,
-    scheduled_for TEXT NOT NULL,
-    sent_at       TEXT,
-    payload       TEXT
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    pet_id              INTEGER REFERENCES pets(id) ON DELETE CASCADE,
+    groomer_id          INTEGER REFERENCES groomers(id),
+    kind                TEXT NOT NULL,
+    scheduled_for       TEXT NOT NULL,
+    sent_at             TEXT,
+    payload             TEXT,
+    confirmation_status TEXT,
+    requested_by_owner  INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS consents (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id     INTEGER REFERENCES owners(id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL,
+    consented_at TEXT DEFAULT (datetime('now','localtime'))
 );
 """
 
@@ -240,6 +261,17 @@ async def db_init():
             "ALTER TABLE reminders ADD COLUMN requested_by_owner INTEGER DEFAULT 0",
             "ALTER TABLE groomers ADD COLUMN is_admin INTEGER DEFAULT 0",
             "ALTER TABLE groomers ADD COLUMN role TEXT DEFAULT 'groomer'",
+            # v2 → prod migrations
+            "ALTER TABLE pets ADD COLUMN perfumes_ok INTEGER DEFAULT 1",
+            "ALTER TABLE pets ADD COLUMN treats_ok INTEGER DEFAULT 1",
+            "ALTER TABLE pets ADD COLUMN health_notes TEXT",
+            "ALTER TABLE pets ADD COLUMN groomer_note_for_owner TEXT",
+            "ALTER TABLE pets ADD COLUMN internal_note TEXT",
+            "ALTER TABLE visits ADD COLUMN services_json TEXT",
+            "ALTER TABLE visits ADD COLUMN groomer_note_for_owner TEXT",
+            "ALTER TABLE visits ADD COLUMN internal_note TEXT",
+            "ALTER TABLE visits ADD COLUMN rating_comment TEXT",
+            "CREATE TABLE IF NOT EXISTS consents (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER REFERENCES owners(id) ON DELETE CASCADE, kind TEXT NOT NULL, consented_at TEXT DEFAULT (datetime('now','localtime')))",
         ]:
             try:
                 await conn.execute(sql)
@@ -612,8 +644,82 @@ async def api_schedule_view(date: str = ""):
         await conn.close()
 
 
+@app.get("/api/schedule/week")
+async def api_schedule_week(start_date: str = ""):
+    from datetime import date as _date
+    today = _date.today()
+    if start_date:
+        try:
+            week_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        except ValueError:
+            week_start = today - timedelta(days=today.weekday())
+    else:
+        week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+
+    conn = await db()
+    try:
+        groomers = [dict(r) for r in await (await conn.execute(
+            "SELECT * FROM groomers ORDER BY id"
+        )).fetchall()]
+        rows = await (await conn.execute("""
+            SELECT r.id, r.pet_id, r.scheduled_for, r.payload AS service,
+                   r.groomer_id, r.confirmation_status,
+                   p.name AS pet_name, p.breed,
+                   o.name AS owner_name, o.phone AS owner_phone
+            FROM reminders r
+            JOIN pets p ON p.id = r.pet_id
+            JOIN owners o ON o.id = p.owner_id
+            WHERE r.kind='visit'
+              AND date(r.scheduled_for) >= ? AND date(r.scheduled_for) <= ?
+            ORDER BY r.scheduled_for
+        """, (week_start.isoformat(), week_end.isoformat()))).fetchall()
+
+        days: dict[str, list] = {}
+        for i in range(7):
+            days[(week_start + timedelta(days=i)).isoformat()] = []
+        for r in rows:
+            rv = dict(r)
+            day_key = rv["scheduled_for"][:10]
+            if day_key in days:
+                days[day_key].append(rv)
+
+        return {
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+            "groomers": groomers,
+            "days": [{"date": d, "visits": v} for d, v in days.items()],
+        }
+    finally:
+        await conn.close()
+
+
+@app.get("/api/qr")
+async def api_qr(url: str = ""):
+    try:
+        import qrcode
+        import io
+        from fastapi.responses import StreamingResponse
+        base = os.getenv("PUBLIC_URL", f"http://localhost:{PORT}")
+        target = url or f"{base}/app?role=owner"
+        qr = qrcode.QRCode(box_size=10, border=4)
+        qr.add_data(target)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf)
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/png")
+    except ImportError:
+        raise HTTPException(501, "qrcode package not installed. Run: pip install qrcode[pil]")
+
+
 @app.get("/api/analytics")
-async def api_analytics(period: str = "month"):
+async def api_analytics(period: str = "month", is_admin: int = 0):
+    # Only groomer accounts with is_admin=1 (Ivanka) may see full analytics
+    if not is_admin:
+        raise HTTPException(403, "Brak dostępu")
+
     today = date.today()
     if period == "month":
         start = today.replace(day=1)
@@ -629,7 +735,8 @@ async def api_analytics(period: str = "month"):
     conn = await db()
     try:
         visits_rows = await (await conn.execute("""
-            SELECT v.visit_date, v.service, v.price, v.rating, p.owner_id, o.created_at AS owner_created
+            SELECT v.visit_date, v.service, v.price, v.rating, v.groomer_id,
+                   p.owner_id, o.created_at AS owner_created
             FROM visits v
             JOIN pets p ON p.id = v.pet_id
             JOIN owners o ON o.id = p.owner_id
@@ -647,9 +754,6 @@ async def api_analytics(period: str = "month"):
         """, (start.isoformat(), end.isoformat()))).fetchone()
         new_clients = new_owners_row[0] if new_owners_row else 0
 
-        svc_counter = Counter(v.get("service", "") for v in visits_list if v.get("service"))
-        top_services = [{"service": s, "count": c} for s, c in svc_counter.most_common(3)]
-
         weekly: dict[str, float] = defaultdict(float)
         for v in visits_list:
             dt = datetime.strptime(v["visit_date"], "%Y-%m-%d").date()
@@ -661,17 +765,23 @@ async def api_analytics(period: str = "month"):
             for w, r in sorted(weekly.items())
         ]
 
-        # Підтвердження візитів (всі нагадування у періоді)
-        conf_rows = await (await conn.execute("""
-            SELECT confirmation_status FROM reminders
-            WHERE kind='visit'
-              AND date(scheduled_for) >= ? AND date(scheduled_for) <= ?
-        """, (start.isoformat(), end.isoformat()))).fetchall()
-        total_rem = len(conf_rows)
-        confirmed = sum(1 for r in conf_rows if (r["confirmation_status"] or "") == "confirmed")
-        confirm_rate = round(confirmed / total_rem * 100) if total_rem else 0
+        # Per-groomer breakdown
+        groomers_rows = await (await conn.execute("SELECT * FROM groomers ORDER BY id")).fetchall()
+        by_groomer = []
+        for g in groomers_rows:
+            gv = [v for v in visits_list if v.get("groomer_id") == g["id"]]
+            gr_rev = sum(v.get("price") or 0 for v in gv)
+            gr_ratings = [v["rating"] for v in gv if v.get("rating")]
+            by_groomer.append({
+                "groomer_id": g["id"],
+                "name": g["name"],
+                "color": g["color"],
+                "visits_count": len(gv),
+                "revenue": round(gr_rev, 2),
+                "avg_rating": round(sum(gr_ratings) / len(gr_ratings), 1) if gr_ratings else 0,
+            })
 
-        # Середній рейтинг
+        # Середній рейтинг загалом
         rating_rows = [r for r in visits_list if r.get("rating")]
         avg_rating = round(sum(r["rating"] for r in rating_rows) / len(rating_rows), 1) if rating_rows else 0
 
@@ -683,11 +793,10 @@ async def api_analytics(period: str = "month"):
             "visits_count": count,
             "avg_per_visit": round(avg, 2),
             "new_clients": new_clients,
-            "top_services": top_services,
             "revenue_by_week": revenue_by_week,
-            "confirm_rate": confirm_rate,
             "avg_rating": avg_rating,
             "ratings_count": len(rating_rows),
+            "by_groomer": by_groomer,
         }
     finally:
         await conn.close()
@@ -704,6 +813,75 @@ class PetIn(BaseModel):
     allergies: str | None = ""
     preferred_cut: str | None = ""
     notes: str | None = ""
+    perfumes_ok: int = 1
+    treats_ok: int = 1
+    health_notes: str | None = ""
+    groomer_note_for_owner: str | None = ""
+    internal_note: str | None = ""
+    consents: list[str] = []
+
+
+@app.get("/api/owner-by-phone")
+async def api_owner_by_phone(phone: str):
+    """Lookup owner by phone number (used on owner login / onboarding duplicate check)."""
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    conn = await db()
+    try:
+        row = await (await conn.execute(
+            "SELECT * FROM owners WHERE replace(replace(phone,' ',''),'-','')=?",
+            (normalized,)
+        )).fetchone()
+        if not row:
+            return {"found": False}
+        owner = dict(row)
+        pets = []
+        pet_rows = await (await conn.execute(
+            "SELECT id FROM pets WHERE owner_id=?", (owner["id"],)
+        )).fetchall()
+        for pr in pet_rows:
+            full = await pet_full(conn, pr["id"])
+            if full:
+                pets.append(full)
+        return {"found": True, "owner": owner, "pets": pets}
+    finally:
+        await conn.close()
+
+
+class ConsentsIn(BaseModel):
+    owner_id: int
+    kinds: list[str]
+
+
+@app.post("/api/consents")
+async def api_save_consents(body: ConsentsIn):
+    conn = await db()
+    try:
+        for kind in body.kinds:
+            existing = await (await conn.execute(
+                "SELECT id FROM consents WHERE owner_id=? AND kind=?",
+                (body.owner_id, kind)
+            )).fetchone()
+            if not existing:
+                await conn.execute(
+                    "INSERT INTO consents (owner_id, kind) VALUES (?,?)",
+                    (body.owner_id, kind)
+                )
+        await conn.commit()
+        return {"ok": True}
+    finally:
+        await conn.close()
+
+
+@app.get("/api/consents/{owner_id}")
+async def api_get_consents(owner_id: int):
+    conn = await db()
+    try:
+        rows = await (await conn.execute(
+            "SELECT kind, consented_at FROM consents WHERE owner_id=?", (owner_id,)
+        )).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
 
 
 @app.post("/api/pets")
@@ -711,32 +889,49 @@ async def api_create_pet(body: PetIn):
     conn = await db()
     try:
         owner_id = None
-        if body.owner_telegram_id:
+        if body.owner_phone:
+            normalized = body.owner_phone.strip().replace(" ", "").replace("-", "")
+            row = await (await conn.execute(
+                "SELECT id FROM owners WHERE replace(replace(phone,' ',''),'-','')=?",
+                (normalized,)
+            )).fetchone()
+            if row:
+                owner_id = row["id"]
+                await conn.execute(
+                    "UPDATE owners SET name=? WHERE id=?",
+                    (body.owner_name, owner_id),
+                )
+        if owner_id is None and body.owner_telegram_id:
             row = await (await conn.execute(
                 "SELECT id FROM owners WHERE telegram_id=?", (body.owner_telegram_id,)
             )).fetchone()
             if row:
                 owner_id = row["id"]
-                await conn.execute(
-                    "UPDATE owners SET name=?, phone=? WHERE id=?",
-                    (body.owner_name, body.owner_phone, owner_id),
-                )
         if owner_id is None:
             cur = await conn.execute(
-                "INSERT INTO owners (telegram_id, name, phone) VALUES (?,?,?)",
-                (body.owner_telegram_id, body.owner_name, body.owner_phone),
+                "INSERT INTO owners (telegram_id, name, phone, language) VALUES (?,?,?,?)",
+                (body.owner_telegram_id, body.owner_name, body.owner_phone, "pl"),
             )
             owner_id = cur.lastrowid
 
         cur = await conn.execute("""
             INSERT INTO pets (owner_id, name, breed, birthday, photo_url,
-                              allergies, preferred_cut, notes)
-            VALUES (?,?,?,?,?,?,?,?)
+                              allergies, preferred_cut, notes,
+                              perfumes_ok, treats_ok, health_notes,
+                              groomer_note_for_owner, internal_note)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             owner_id, body.pet_name, body.breed, body.birthday or None,
             body.photo_url, body.allergies, body.preferred_cut, body.notes,
+            body.perfumes_ok, body.treats_ok, body.health_notes or None,
+            body.groomer_note_for_owner or None, body.internal_note or None,
         ))
         pet_id = cur.lastrowid
+        for kind in body.consents:
+            await conn.execute(
+                "INSERT INTO consents (owner_id, kind) VALUES (?,?)",
+                (owner_id, kind)
+            )
         await conn.commit()
         return await pet_full(conn, pet_id)
     finally:
@@ -754,11 +949,16 @@ async def api_update_pet(pet_id: int, body: PetIn):
             raise HTTPException(404, "Pet not found")
         await conn.execute("""
             UPDATE pets SET name=?, breed=?, birthday=?, photo_url=?,
-                            allergies=?, preferred_cut=?, notes=?
+                            allergies=?, preferred_cut=?, notes=?,
+                            perfumes_ok=?, treats_ok=?, health_notes=?,
+                            groomer_note_for_owner=?, internal_note=?
             WHERE id=?
         """, (
             body.pet_name, body.breed, body.birthday or None, body.photo_url,
-            body.allergies, body.preferred_cut, body.notes, pet_id,
+            body.allergies, body.preferred_cut, body.notes,
+            body.perfumes_ok, body.treats_ok, body.health_notes or None,
+            body.groomer_note_for_owner or None, body.internal_note or None,
+            pet_id,
         ))
         await conn.execute(
             "UPDATE owners SET name=?, phone=? WHERE id=?",
@@ -772,15 +972,42 @@ async def api_update_pet(pet_id: int, body: PetIn):
 
 class VisitIn(BaseModel):
     visit_date: str
-    service: str
+    service: str = ""
+    services_json: str | None = ""
     cut_style: str | None = ""
     price: float | None = 0
     notes: str | None = ""
+    groomer_note_for_owner: str | None = ""
+    internal_note: str | None = ""
     photo_before: str | None = ""
     photo_url: str | None = ""
     rating: int | None = None
+    rating_comment: str | None = ""
     groomer_id: int | None = None
     schedule_followup: bool = True
+
+
+class RatingIn(BaseModel):
+    rating: int
+    rating_comment: str | None = ""
+
+
+@app.post("/api/visits/{visit_id}/rate")
+async def api_rate_visit(visit_id: int, body: RatingIn):
+    if not 1 <= body.rating <= 5:
+        raise HTTPException(400, "Rating must be 1–5")
+    conn = await db()
+    try:
+        cur = await conn.execute(
+            "UPDATE visits SET rating=?, rating_comment=? WHERE id=?",
+            (body.rating, body.rating_comment or None, visit_id)
+        )
+        await conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Visit not found")
+        return {"ok": True}
+    finally:
+        await conn.close()
 
 
 @app.post("/api/pets/{pet_id}/visits")
@@ -794,13 +1021,16 @@ async def api_add_visit(pet_id: int, body: VisitIn):
             raise HTTPException(404, "Pet not found")
         await conn.execute("""
             INSERT INTO visits
-              (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url, rating)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+              (pet_id, groomer_id, visit_date, service, services_json, cut_style,
+               price, notes, groomer_note_for_owner, internal_note,
+               photo_before, photo_url, rating, rating_comment)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             pet_id, body.groomer_id, body.visit_date, body.service,
-            body.cut_style, body.price, body.notes,
+            body.services_json or None, body.cut_style, body.price, body.notes,
+            body.groomer_note_for_owner or None, body.internal_note or None,
             body.photo_before or None, body.photo_url or None,
-            body.rating,
+            body.rating, body.rating_comment or None,
         ))
         if body.schedule_followup:
             visit_dt = datetime.strptime(body.visit_date, "%Y-%m-%d").date()
@@ -913,44 +1143,53 @@ def render_reminder(pet: dict, kind: str, lang: str | None = None) -> str:
         if pl:
             when = f"jutro o {time_str}" if time_str else "jutro"
             return (
-                f"Cześć, {name}! 🐾\n"
-                f"Przypominamy: {when} czekamy na {pet_name} w {SALON_NAME}.\n"
+                f"Dzień dobry, {name}.\n"
+                f"Uprzejmie przypominamy, że {when} czekamy na Państwa psa {pet_name} "
+                f"w {SALON_NAME}.\n"
                 f"📍 {SALON_ADDRESS}\n"
                 f"📞 {SALON_PHONE}\n\n"
-                f"Jeśli plany się zmieniły — napisz w odpowiedzi."
+                f"Jeśli plany się zmieniły — prosimy napisać lub zadzwonić."
             )
         when = f"завтра о {time_str}" if time_str else "завтра"
         return (
-            f"Привіт, {name}! 🐾\n"
-            f"Нагадуємо: {when} чекаємо {pet_name} в {SALON_NAME}.\n"
+            f"Доброго дня, {name}.\n"
+            f"Нагадуємо: {when} чекаємо на {pet_name} в {SALON_NAME}.\n"
             f"📍 {SALON_ADDRESS}\n"
             f"📞 {SALON_PHONE}\n\n"
-            f"Якщо плани змінились — просто напишіть у відповідь."
+            f"Якщо плани змінились — напишіть або зателефонуйте."
         )
     if kind == "birthday":
         if pl:
             return (
-                f"🎂 Dziś {pet_name} obchodzi urodziny!\n\n"
-                f"Gratulujemy, {name} 💚\n"
-                f"W tym tygodniu — 15% zniżki na dowolną usługę dla solenizanta."
+                f"Dzień dobry, {name}.\n"
+                f"Dziś {pet_name} obchodzi urodziny! 🎂\n\n"
+                f"Gratulujemy i zapraszamy w tym tygodniu — 15% zniżki "
+                f"na dowolną usługę dla solenizanta.\n"
+                f"📞 {SALON_PHONE}"
             )
         return (
-            f"🎂 Сьогодні {pet_name} святкує день народження!\n\n"
-            f"Вітаємо вас, {name} 💚\n"
-            f"Цього тижня — знижка 15% на будь-яку послугу для іменинника."
+            f"Доброго дня, {name}.\n"
+            f"Сьогодні {pet_name} святкує день народження! 🎂\n\n"
+            f"Вітаємо і запрошуємо цього тижня — знижка 15% "
+            f"на будь-яку послугу для іменинника.\n"
+            f"📞 {SALON_PHONE}"
         )
     if kind == "followup":
         weeks = pet.get("weeks_since_last_visit") or pet.get("followup_weeks", 6)
         if pl:
             return (
-                f"Cześć, {name}! 🐶\n"
-                f"Tęsknimy za {pet_name} — ostatnio byliście u nas {weeks} tyg. temu.\n"
-                f"Czas na nowe strzyżenie? Napisz, kiedy ci wygodnie."
+                f"Dzień dobry, {name}.\n"
+                f"Minęło już {weeks} tygodni od ostatniej wizyty {pet_name} "
+                f"w {SALON_NAME}.\n"
+                f"Czas na kolejne strzyżenie? Zapraszamy do kontaktu.\n"
+                f"📞 {SALON_PHONE}"
             )
         return (
-            f"Привіт, {name}! 🐶\n"
-            f"Скучили за {pet_name} — востаннє були в нас {weeks} тижнів тому.\n"
-            f"Час на нову стрижку? Напишіть, коли вам зручно."
+            f"Доброго дня, {name}.\n"
+            f"Минуло вже {weeks} тижнів від останнього візиту {pet_name} "
+            f"в {SALON_NAME}.\n"
+            f"Час на нову стрижку? Запрошуємо зв'язатись.\n"
+            f"📞 {SALON_PHONE}"
         )
     return f"Reminder for {pet_name}."
 

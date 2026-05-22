@@ -1,19 +1,23 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="pl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#8B5E3C">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="icon" type="image/png" href="/static/img/favicon.png">
   <link rel="apple-touch-icon" href="/static/img/favicon.png">
-  <title>{{ salon_name }} — {{ salon_tagline }}</title>
+  <title>{{ salon_name }}</title>
   <link rel="stylesheet" href="/static/app.css">
+  <!-- Telegram Web App JS — only used if opened inside Telegram, safe to load always -->
   <script src="https://telegram.org/js/telegram-web-app.js" async></script>
 </head>
 <body>
 
 <div id="app">
-  <div class="loading">Завантаження…</div>
+  <div class="loading">Ładowanie…</div>
 </div>
 
 <script>

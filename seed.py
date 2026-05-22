@@ -113,25 +113,37 @@ async def seed_data(db_file: str):
             p = c["pet"]
             cur = await conn.execute("""
                 INSERT INTO pets (owner_id, name, breed, birthday, photo_url,
-                                  allergies, preferred_cut, notes, followup_weeks)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                                  allergies, preferred_cut, notes, followup_weeks,
+                                  perfumes_ok, treats_ok, health_notes)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 owner_id, p["name"], p["breed"], p["birthday"], p["photo_url"],
-                p["allergies"], p["preferred_cut"], p["notes"], 6,
+                p["allergies"], p["preferred_cut"], p.get("notes", ""), 6,
+                p.get("perfumes_ok", 1), p.get("treats_ok", 1), p.get("health_notes"),
             ))
             pet_id = cur.lastrowid
+
+            # Auto-add consent records for demo clients
+            for kind in ("sms_transactional", "regulamin", "rodo"):
+                await conn.execute(
+                    "INSERT INTO consents (owner_id, kind) VALUES (?,?)",
+                    (owner_id, kind)
+                )
 
             for v in c["visits"]:
                 dt = today - timedelta(days=v["days_ago"])
                 gid = groomer_ids[v.get("groomer_idx", 0)]
                 await conn.execute("""
                     INSERT INTO visits
-                      (pet_id, groomer_id, visit_date, service, cut_style, price, notes, photo_before, photo_url, rating)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                      (pet_id, groomer_id, visit_date, service, cut_style, price, notes,
+                       photo_before, photo_url, rating,
+                       groomer_note_for_owner, internal_note)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     pet_id, gid, dt.isoformat(),
-                    v["service"], v["cut_style"], v["price"], v["notes"],
+                    v["service"], v["cut_style"], v["price"], v.get("notes", ""),
                     v.get("photo_before"), v.get("photo_url"), v.get("rating"),
+                    v.get("groomer_note_for_owner"), v.get("internal_note"),
                 ))
 
             if c.get("next_visit_in_days"):
@@ -149,10 +161,10 @@ async def seed_data(db_file: str):
         cur = await conn.execute("SELECT id FROM pets ORDER BY id LIMIT 3")
         pet_ids = [r[0] for r in await cur.fetchall()]
 
-        services_today = ["Повне грумування", "Купання + стрижка", "Купання + сушка + нігті"]
-        statuses_today = ["confirmed", None, "rescheduled"]  # для демонстрації всіх станів
+        services_today = ["Pełne grooming", "Kąpiel + strzyżenie", "Kąpiel + suszenie + pazury"]
+        statuses_today = ["confirmed", None, "rescheduled"]
         for i, (pid, gid) in enumerate(zip(pet_ids, groomer_ids)):
-            hour = 10 + i * 2  # 10:00, 12:00, 14:00
+            hour = 10 + i * 2
             await conn.execute("""
                 INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id, confirmation_status)
                 VALUES (?, 'visit', ?, ?, ?, ?)
@@ -160,10 +172,10 @@ async def seed_data(db_file: str):
 
         statuses_tomorrow = [None, "confirmed", None]
         for i, (pid, gid) in enumerate(zip(pet_ids, groomer_ids)):
-            hour = 10 + i * 2  # 10:00, 12:00, 14:00
+            hour = 10 + i * 2
             await conn.execute("""
                 INSERT INTO reminders (pet_id, kind, scheduled_for, payload, groomer_id, confirmation_status)
                 VALUES (?, 'visit', ?, ?, ?, ?)
-            """, (pid, f"{tomorrow.isoformat()} {hour:02d}:00", "Стрижка", gid, statuses_tomorrow[i]))
+            """, (pid, f"{tomorrow.isoformat()} {hour:02d}:00", "Strzyżenie", gid, statuses_tomorrow[i]))
 
         await conn.commit()

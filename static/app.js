@@ -241,16 +241,7 @@ const LANG_PL = {
   qFinishContinue: "Przejdź do karty",
 };
 
-let currentLang = localStorage.getItem("lang") || "uk";
-
-const T = new Proxy({}, {
-  get(_, key) {
-    if (role === "owner" && currentLang === "pl" && LANG_PL[key] !== undefined) {
-      return LANG_PL[key];
-    }
-    return T_BASE[key];
-  }
-});
+// currentLang and T are initialized after `role` is parsed (see below)
 
 function plural(n, one, few, many) {
   n = Math.abs(n) % 100;
@@ -274,6 +265,17 @@ const tgUser = tg?.initDataUnsafe?.user;
 const params = new URLSearchParams(location.search);
 let role = params.get("role") || "owner";
 let forceNew = params.get("new") === "1";
+
+// Owner UI is always PL; groomer UI stays in Ukrainian (internal team)
+let currentLang = (role === "owner") ? "pl" : (localStorage.getItem("lang") || "uk");
+
+const T = new Proxy({}, {
+  get(_, key) {
+    if (role === "owner" && LANG_PL[key] !== undefined) return LANG_PL[key];
+    if (role !== "owner" && currentLang === "pl" && LANG_PL[key] !== undefined) return LANG_PL[key];
+    return T_BASE[key];
+  }
+});
 
 // ── Утиліти ─────────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
@@ -316,20 +318,31 @@ function fmtDate(iso) {
   return `${d}.${m}.${y}`;
 }
 
+const MONTHS_SHORT_PL = ["sty","lut","mar","kwi","maj","cze","lip","sie","wrz","paź","lis","gru"];
+const MONTHS_LONG_PL  = ["stycznia","lutego","marca","kwietnia","maja","czerwca",
+                         "lipca","sierpnia","września","października","listopada","grudnia"];
+const DAYS_SHORT_PL   = ["Nd","Pn","Wt","Śr","Cz","Pt","Sb"];
+
+const MONTHS_SHORT_UK = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
+const MONTHS_LONG_UK  = ["січня","лютого","березня","квітня","травня","червня",
+                         "липня","серпня","вересня","жовтня","листопада","грудня"];
+const DAYS_SHORT_UK   = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"];
+
+function _monthsShort() { return role === "owner" || currentLang === "pl" ? MONTHS_SHORT_PL : MONTHS_SHORT_UK; }
+function _monthsLong()  { return role === "owner" || currentLang === "pl" ? MONTHS_LONG_PL  : MONTHS_LONG_UK;  }
+function _daysShort()   { return role === "owner" || currentLang === "pl" ? DAYS_SHORT_PL   : DAYS_SHORT_UK;   }
+
 function fmtVisitDate(iso) {
   const dt = new Date(iso + "T00:00:00");
-  const months = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
-  return { day: dt.getDate(), month: months[dt.getMonth()] };
+  return { day: dt.getDate(), month: _monthsShort()[dt.getMonth()] };
 }
 
 function fmtNextVisit(iso) {
   if (!iso) return "";
   const dt = new Date(iso.replace(" ", "T"));
-  const months = ["січня","лютого","березня","квітня","травня","червня",
-                  "липня","серпня","вересня","жовтня","листопада","грудня"];
   const hh = String(dt.getHours()).padStart(2, "0");
   const mm = String(dt.getMinutes()).padStart(2, "0");
-  return `${dt.getDate()} ${months[dt.getMonth()]}, ${hh}:${mm}`;
+  return `${dt.getDate()} ${_monthsLong()[dt.getMonth()]}, ${hh}:${mm}`;
 }
 
 function fmtTime(iso) {
@@ -349,9 +362,7 @@ function isoDate(dt) {
 
 function fmtDateShort(iso) {
   const dt = new Date(iso + "T00:00:00");
-  const days = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"];
-  const months = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
-  return `${days[dt.getDay()]} ${dt.getDate()} ${months[dt.getMonth()]}`;
+  return `${_daysShort()[dt.getDay()]} ${dt.getDate()} ${_monthsShort()[dt.getMonth()]}`;
 }
 
 function roleToggleBtn() {
@@ -371,7 +382,8 @@ function groomerSelfBtn() {
 }
 
 function langToggleBtn() {
-  if (role !== "owner") return "";
+  // Language switcher only for groomer view (internal team)
+  if (role !== "groomer") return "";
   const other = currentLang === "uk" ? "pl" : "uk";
   const flag = currentLang === "uk" ? "🇺🇦" : "🇵🇱";
   return `<button class="lang-toggle" onclick="switchLang('${other}')" title="Language">${flag}</button>`;
@@ -422,7 +434,7 @@ function loyaltyCard(loyalty) {
 
   // Якщо порода не еліґібельна — показуємо інформативну заглушку
   if (eligible === false) {
-    const text = currentLang === "pl"
+    const text = role === "owner" || currentLang === "pl"
       ? "Karta stałego klienta dostępna jest dla wybranych ras (Yorki, Maltańczyk, Pudel i inne — patrz cennik)."
       : "Картка лояльності доступна для обраних порід (йорк, мальтезе, пудель та інші — див. прайс).";
     return `
@@ -463,9 +475,10 @@ function loyaltyCard(loyalty) {
     statusHtml = `<div class="loyalty-status">${txt}</div>`;
   }
 
+  const loyaltyTitle = (role === "owner" || currentLang === "pl") ? "Karta stałego klienta" : T.loyaltyTitle;
   return `
     <div class="card loyalty-card">
-      <div class="loyalty-title">${T.loyaltyTitle}</div>
+      <div class="loyalty-title">${loyaltyTitle}</div>
       <div class="loyalty-paws">${paws}</div>
       ${statusHtml}
     </div>
@@ -489,109 +502,135 @@ async function render() {
 async function renderOwner() {
   if (forceNew) return renderQuestionnaire();
 
+  // Phone-based session persistence
+  const savedPhone = localStorage.getItem("owner_phone");
+  if (savedPhone) {
+    try {
+      const data = await api(`/api/owner-by-phone?phone=${encodeURIComponent(savedPhone)}`);
+      if (data.found && data.pets && data.pets.length > 0) {
+        currentOwnerPets = data.pets;
+        currentOwnerPetIdx = 0;
+        return renderOwnerPetCard(data.pets[0]);
+      }
+    } catch (e) {}
+    localStorage.removeItem("owner_phone");
+  }
+
+  // Telegram fallback (legacy / testing)
   if (tgUser?.id) {
     try {
       const data = await api(`/api/owner/${tgUser.id}`);
-      if (!data.owner || data.pets.length === 0) return renderWelcome();
-      return renderOwnerPetCard(data.pets[0]);
-    } catch (e) {
-      return renderWelcome();
-    }
+      if (data.owner && data.pets.length > 0) {
+        currentOwnerPets = data.pets;
+        return renderOwnerPetCard(data.pets[0]);
+      }
+    } catch (e) {}
   }
-  return renderOwnerDemoLanding();
+
+  renderOwnerPhoneLanding();
 }
 
-function renderOwnerDemoLanding() {
+let currentOwnerPets = [];
+let currentOwnerPetIdx = 0;
+
+function renderOwnerPhoneLanding() {
+  const tel = (window.SALON.phone || "").replace(/\s/g, "");
   app.innerHTML = `
     ${header({ title: window.SALON.name })}
-    <div class="hero" style="text-align:center;">
+    <div class="hero" style="text-align:center; padding-bottom:8px;">
       <img class="landing-logo" src="${window.SALON.logoColor}" alt="${window.SALON.name}">
       <h2>${window.SALON.name}</h2>
-      <p style="opacity:0.92;">${window.SALON.tagline}</p>
+      <p style="opacity:0.88; font-size:14px;">${window.SALON.tagline || ""}</p>
     </div>
-
-    <div style="padding: 0 14px; display:flex; flex-direction:column; gap:12px; margin-top:4px;">
-
-      <div class="card" style="cursor:pointer; padding:18px;" onclick="renderWelcome()">
-        <div style="display:flex; align-items:center; gap:14px;">
-          <div style="width:48px; height:48px; border-radius:16px; background:var(--primary-soft);
-                      display:grid; place-items:center; font-size:24px; flex-shrink:0;">🆕</div>
-          <div>
-            <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Перший раз у салоні</div>
-            <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
-              Клієнт відкриває Mini App вперше → анкета (8 кроків) → готова картка
-            </div>
-          </div>
-          <div style="color:var(--text-soft); font-size:18px;">›</div>
+    <div style="padding:0 16px 24px;">
+      <div class="card" style="padding:20px;">
+        <div style="font-weight:700; font-size:17px; margin-bottom:6px;">Witamy!</div>
+        <div style="color:var(--text-soft); font-size:14px; margin-bottom:18px; line-height:1.5;">
+          Proszę podać numer telefonu, aby otworzyć kartę swojego psa.
         </div>
-      </div>
-
-      <div class="card" style="cursor:pointer; padding:18px;" onclick="showDemoReturningClient('Bella')">
-        <div style="display:flex; align-items:center; gap:14px;">
-          <div style="width:48px; height:48px; border-radius:16px; background:var(--primary-soft);
-                      display:grid; place-items:center; font-size:24px; flex-shrink:0;">🐩</div>
-          <div>
-            <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Olena (UA) — Bella 🇺🇦</div>
-            <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
-              Постійна клієнтка українською: картка лояльності, наступний візит, історія
-            </div>
-          </div>
-          <div style="color:var(--text-soft); font-size:18px;">›</div>
+        <div class="phone-row" style="margin-bottom:14px;">
+          <select id="lp-country">
+            <option value="+48">🇵🇱 +48</option>
+            <option value="+380">🇺🇦 +380</option>
+            <option value="+49">🇩🇪 +49</option>
+            <option value="+420">🇨🇿 +420</option>
+          </select>
+          <input id="lp-phone" type="tel" inputmode="numeric" placeholder="123 456 789"
+                 oninput="onPhoneMask(event)"
+                 onkeydown="if(event.key==='Enter') loginByPhone()">
         </div>
+        <button class="btn" style="width:100%;" onclick="loginByPhone()">Otwórz kartę →</button>
       </div>
-
-      <div class="card" style="cursor:pointer; padding:18px;" onclick="showDemoReturningClient('Sam')">
-        <div style="display:flex; align-items:center; gap:14px;">
-          <div style="width:48px; height:48px; border-radius:16px; background:#EFD9CF;
-                      display:grid; place-items:center; font-size:24px; flex-shrink:0;">🐕</div>
-          <div>
-            <div style="font-weight:700; font-size:16px; margin-bottom:3px;">Anna (PL) — Sam 🇵🇱</div>
-            <div style="font-size:13px; color:var(--text-soft); line-height:1.4;">
-              Польська клієнтка: інтерфейс автоматично польською — її рідною мовою
-            </div>
-          </div>
-          <div style="color:var(--text-soft); font-size:18px;">›</div>
+      <div style="text-align:center; margin-top:16px; color:var(--text-soft); font-size:13px;">
+        Pierwsza wizyta?
+        <span onclick="renderWelcome()" style="cursor:pointer; color:var(--primary); font-weight:600;">
+          Wypełnij formularz rejestracji
+        </span>
+      </div>
+      <div class="salon-info" style="margin-top:20px;">
+        <div class="row-line"><div class="ic">📞</div>
+          <div><a href="tel:${tel}">${window.SALON.phone}</a> — zapisy telefonicznie</div>
         </div>
-      </div>
-
-      <div style="text-align:center; padding:14px 0 4px; color:var(--text-soft); font-size:13px;">
-        Мова визначається автоматично з профілю клієнта
+        <div class="row-line"><div class="ic">📍</div><div>${window.SALON.address}</div></div>
       </div>
     </div>
   `;
+  setTimeout(() => document.getElementById("lp-phone")?.focus(), 100);
 }
 
-window.renderWelcome = renderWelcome;
-window.showDemoReturningClient = async (petName = "Bella") => {
-  const pets = await api("/api/pets");
-  if (pets.length === 0) return renderWelcome();
-  const target = pets.find(p => p.name === petName) || pets[0];
-  const pet = await api(`/api/pets/${target.id}`);
-  // Симулюємо клієнт-першу-мову: беремо з owner.language якщо встановлено
-  if (pet.owner?.language) {
-    currentLang = pet.owner.language;
-    localStorage.setItem("lang", currentLang);
+window.renderOwnerDemoLanding = renderOwnerPhoneLanding;
+
+window.loginByPhone = async () => {
+  const code = document.getElementById("lp-country")?.value || "+48";
+  const num = (document.getElementById("lp-phone")?.value || "").trim();
+  if (!num) { toast("Proszę podać numer telefonu"); return; }
+  const phone = `${code} ${num}`;
+  app.innerHTML = `<div class="loading">Ładowanie…</div>`;
+  try {
+    const data = await api(`/api/owner-by-phone?phone=${encodeURIComponent(phone)}`);
+    if (data.found && data.pets && data.pets.length > 0) {
+      localStorage.setItem("owner_phone", phone);
+      currentOwnerPets = data.pets;
+      currentOwnerPetIdx = 0;
+      renderOwnerPetCard(data.pets[0]);
+    } else if (data.found) {
+      localStorage.setItem("owner_phone", phone);
+      qState = { owner_phone: phone };
+      renderWelcome();
+    } else {
+      qState = {};
+      toast("Nie znaleziono konta. Proszę wypełnić formularz rejestracji.", 3500);
+      renderWelcome();
+    }
+  } catch (e) {
+    toast("Błąd: " + e.message);
+    renderOwnerPhoneLanding();
   }
-  renderOwnerPetCard(pet, true);
 };
 
 function renderWelcome() {
-  const backFn = tgUser ? "" : "renderOwnerDemoLanding()";
   app.innerHTML = `
-    ${header({ title: window.SALON.name, backFn })}
-    <div class="hero">
-      <span class="paw">🐾</span>
-      <h2>${T.welcomeTitle}</h2>
-      <p>${T.welcomeSub}</p>
-      <button class="btn white" onclick="startQuestionnaire()">${T.welcomeStart}</button>
+    ${header({ title: window.SALON.name, backFn: "renderOwnerPhoneLanding()" })}
+    <div class="hero" style="background:linear-gradient(160deg, var(--primary) 0%, var(--accent) 100%); color:white; border-radius:0 0 28px 28px; padding:32px 20px 36px;">
+      <span style="font-size:48px; display:block; margin-bottom:10px;">🐾</span>
+      <h2 style="color:white; margin:0 0 8px;">Witamy w ${window.SALON.name}!</h2>
+      <p style="opacity:0.92; margin:0; font-size:14px; line-height:1.5;">
+        Wypełnij krótki formularz, abyśmy mogli pamiętać preferencje Państwa psa
+        i wysyłać przypomnienia o wizytach.
+      </p>
     </div>
-    <div class="card">
-      <div style="font-size:14px; line-height:1.6; color:var(--text-soft);">
-        Після анкети ви будете отримувати:<br>
-        • 📅 нагадування за день до візиту<br>
-        • 🎂 привітання з днем народження улюбленця<br>
-        • 🐶 нагадування, коли час на наступну стрижку
+    <div style="padding:16px;">
+      <div class="card" style="margin-bottom:10px;">
+        <div style="font-size:14px; line-height:1.8; color:var(--text-main);">
+          Po rejestracji będą Państwo otrzymywać:<br>
+          <span style="color:var(--primary);">📅</span> przypomnienie dzień przed wizytą<br>
+          <span style="color:var(--primary);">🎂</span> życzenia urodzinowe dla psa<br>
+          <span style="color:var(--primary);">✂</span> informację kiedy czas na kolejne strzyżenie
+        </div>
       </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="startQuestionnaire()">
+        Wypełnij kartę →
+      </button>
     </div>
   `;
 }
@@ -603,14 +642,22 @@ window.startQuestionnaire = () => {
 
 // ── Анкета ───────────────────────────────────────────────────────────────────
 const Q_STEPS = [
-  { key: "owner_name",   label: T.qOwnerName,   type: "text",     required: true, placeholder: "Анна" },
-  { key: "owner_phone",  label: T.qOwnerPhone,  type: "phone" },
-  { key: "pet_name",     label: T.qPetName,     type: "text",     required: true, placeholder: "Сем" },
-  { key: "photo_url",    label: T.qPhoto,       sub: T.qPhotoSub, type: "photo" },
-  { key: "breed",        label: T.qBreed,       type: "text",     placeholder: "Pudel / Mix / ..." },
-  { key: "birthday",     label: T.qBirthday,    sub: T.qBirthdaySub, type: "date" },
-  { key: "allergies",    label: T.qAllergies,   sub: T.qAllergiesSub, type: "textarea", placeholder: "Куряче м'ясо, овес..." },
-  { key: "preferred_cut",label: T.qCut,         sub: T.qCutSub,   type: "textarea", placeholder: "Коротко, акуратні лапи..." },
+  { key: "owner_name",    label: "Imię i nazwisko właściciela",  type: "text",     required: true,  placeholder: "Anna Kowalska" },
+  { key: "owner_phone",   label: "Numer telefonu",               type: "phone" },
+  { key: "pet_name",      label: "Jak ma na imię pies?",         type: "text",     required: true,  placeholder: "Bella" },
+  { key: "breed",         label: "Rasa",                         type: "breed" },
+  { key: "birthday",      label: "Data urodzenia psa",
+    sub: "Abyśmy mogli złożyć życzenia w jego/jej urodziny 🎂",  type: "date" },
+  { key: "photo_url",     label: "Zdjęcie psa",
+    sub: "Można pominąć — dodasz później",                       type: "photo" },
+  { key: "allergies",     label: "Alergie lub uczulenia?",
+    sub: "Np. na kosmetyki, pokarmy. Jeśli brak — pomiń.",       type: "textarea", placeholder: "Szampon z lanoliną, kurczak…" },
+  { key: "health_notes",  label: "Szczególne potrzeby zdrowotne",
+    sub: "Np. epilepsja, choroby serca. Jeśli brak — pomiń.",    type: "textarea", placeholder: "Padaczka, choroby serca…" },
+  { key: "preferred_cut", label: "Ulubiony styl strzyżenia",
+    sub: "Np. 'krótkie, łapy schludne' lub 'naturalne, minimum'", type: "textarea", placeholder: "Krótkie, równe" },
+  { key: "_extras",       label: "Dodatkowe informacje",         type: "extras" },
+  { key: "_consents",     label: "Zgody",                        type: "consents", required: true },
 ];
 
 let qState = {};
@@ -629,7 +676,7 @@ function renderQuestionnaire(step = 0) {
   let input;
   if (s.type === "phone") {
     const savedCode = qState._phone_code || "+48";
-    const savedNum  = qState._phone_num  || "";
+    const savedNum  = qState._phone_num  || (qState.owner_phone ? qState.owner_phone.split(" ").slice(1).join(" ") : "");
     input = `
       <div class="phone-row">
         <select id="q-country" onchange="onCountryChange()">
@@ -644,6 +691,15 @@ function renderQuestionnaire(step = 0) {
                placeholder="123 456 789" value="${savedNum}"
                oninput="onPhoneMask(event)">
       </div>
+      <div id="phone-check-hint" style="font-size:12px; color:var(--text-soft); margin-top:8px; min-height:18px;"></div>
+    `;
+  } else if (s.type === "breed") {
+    // Pre-fetch breeds list from PRICE_LIST via config (loaded async)
+    input = `
+      <input id="q-input" type="text" list="breed-list" placeholder="Zacznij pisać rasę…"
+             value="${qState.breed || ""}" oninput="onBreedInput(event)">
+      <datalist id="breed-list" id="breed-datalist"></datalist>
+      <div id="breed-options" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;"></div>
     `;
   } else if (s.type === "textarea") {
     input = `<textarea id="q-input" placeholder="${s.placeholder || ""}">${qState[s.key] || ""}</textarea>`;
@@ -656,8 +712,55 @@ function renderQuestionnaire(step = 0) {
           ${qState.photo_url ? `<img src="${qState.photo_url}" style="width:100%;height:100%;object-fit:cover">` : "🐶"}
         </div>
         <label class="btn ghost small" style="cursor:pointer;">
-          Завантажити фото
+          Dodaj zdjęcie
           <input type="file" id="q-input" accept="image/*" style="display:none" onchange="onPhotoChange(event)">
+        </label>
+      </div>
+    `;
+  } else if (s.type === "extras") {
+    const perfOk = qState.perfumes_ok !== 0;
+    const trOk   = qState.treats_ok   !== 0;
+    input = `
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <label class="toggle-row">
+          <div style="flex:1;">
+            <div style="font-weight:600;">Perfumy po strzyżeniu</div>
+            <div style="font-size:13px; color:var(--text-soft);">Nanoszenie perfum dla psów po zabiegu</div>
+          </div>
+          <input type="checkbox" id="q-perfumes" ${perfOk?"checked":""}>
+        </label>
+        <label class="toggle-row">
+          <div style="flex:1;">
+            <div style="font-weight:600;">Smakołyki podczas wizyty</div>
+            <div style="font-size:13px; color:var(--text-soft);">Nagradzanie przekąskami w trakcie strzyżenia</div>
+          </div>
+          <input type="checkbox" id="q-treats" ${trOk?"checked":""}>
+        </label>
+      </div>
+    `;
+  } else if (s.type === "consents") {
+    input = `
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <label class="consent-row">
+          <input type="checkbox" id="c-sms" required>
+          <span>Wyrażam zgodę na otrzymywanie <strong>SMS z przypomnieniami o wizytach</strong>
+            (wymagane do działania usługi)</span>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="c-regulamin" required>
+          <span>Zapoznałam/em się z
+            <a href="#" onclick="event.preventDefault();">regulaminem salonu</a>
+            i akceptuję jego warunki</span>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="c-rodo" required>
+          <span>Wyrażam zgodę na
+            <a href="#" onclick="event.preventDefault();">przetwarzanie danych osobowych</a>
+            zgodnie z RODO</span>
+        </label>
+        <label class="consent-row">
+          <input type="checkbox" id="c-marketing">
+          <span>Opcjonalnie: zgoda na SMS-y marketingowe (promocje, życzenia)</span>
         </label>
       </div>
     `;
@@ -677,20 +780,45 @@ function renderQuestionnaire(step = 0) {
       ${step > 0
         ? `<button class="btn back outline" onclick="renderQuestionnaire(${step - 1})">←</button>`
         : ""}
-      ${!s.required
-        ? `<button class="btn skip" onclick="qNext('')">${T.skip}</button>`
+      ${!s.required && s.type !== "consents" && s.type !== "extras"
+        ? `<button class="btn skip" onclick="qNext('')">Pomiń</button>`
         : ""}
-      <button class="btn" onclick="qNext()">${isLast ? T.done : T.next}</button>
+      <button class="btn" onclick="qNext()">${isLast ? "Zarejestruj się" : "Dalej →"}</button>
     </div>
   `;
 
+  if (s.type === "breed") _populateBreedOptions();
+  if (s.type === "phone" && qState.owner_phone) {
+    document.getElementById("q-input").value = qState.owner_phone.split(" ").slice(1).join(" ");
+  }
   setTimeout(() => {
     const el = $("#q-input");
-    if (el && s.type !== "photo") el.focus();
+    if (el && s.type !== "photo" && s.type !== "breed" && s.type !== "extras" && s.type !== "consents") el.focus();
   }, 100);
 }
 
-window.qNext = (forcedValue) => {
+let _breedsCache = [];
+async function _populateBreedOptions() {
+  try {
+    if (_breedsCache.length === 0) {
+      const data = await api("/api/services?lang=pl");
+      _breedsCache = data.rows.map(r => r.breed);
+    }
+    const dl = document.getElementById("breed-datalist");
+    if (dl) dl.innerHTML = _breedsCache.map(b => `<option value="${b}">`).join("");
+    const opts = document.getElementById("breed-options");
+    if (opts) {
+      const popular = ["Pudel", "York", "Maltańczyk", "Szpic", "Biewer"];
+      opts.innerHTML = popular.map(b =>
+        `<button type="button" class="breed-chip${qState.breed===b?" active":""}" onclick="qState.breed='${b}';document.getElementById('q-input').value='${b}';_populateBreedOptions()">${b}</button>`
+      ).join("") + `<button type="button" class="breed-chip${!popular.includes(qState.breed)&&qState.breed?" active":""}" onclick="document.getElementById('q-input').value='';document.getElementById('q-input').focus()">Inna…</button>`;
+    }
+  } catch (e) {}
+}
+
+window.onBreedInput = (e) => { qState.breed = e.target.value; };
+
+window.qNext = async (forcedValue) => {
   const s = Q_STEPS[qStep];
   let val;
   if (forcedValue !== undefined) {
@@ -701,17 +829,56 @@ window.qNext = (forcedValue) => {
     qState._phone_code = code;
     qState._phone_num  = num;
     val = num ? `${code} ${num}` : "";
+    // Check for existing account
+    if (val) {
+      try {
+        const hint = document.getElementById("phone-check-hint");
+        if (hint) hint.textContent = "Sprawdzam…";
+        const data = await api(`/api/owner-by-phone?phone=${encodeURIComponent(val)}`);
+        if (data.found) {
+          if (hint) hint.textContent = "";
+          toast("Ten numer jest już zarejestrowany. Proszę się zalogować.", 3500);
+          localStorage.setItem("owner_phone", val);
+          if (data.pets && data.pets.length > 0) {
+            currentOwnerPets = data.pets;
+            renderOwnerPetCard(data.pets[0]);
+          } else {
+            renderOwnerPhoneLanding();
+          }
+          return;
+        }
+        if (hint) hint.textContent = "";
+      } catch (e) {}
+    }
   } else if (s.type === "photo") {
     val = qState.photo_url || "";
+  } else if (s.type === "breed") {
+    val = ($("#q-input")?.value || qState.breed || "").trim();
+    qState.breed = val;
+  } else if (s.type === "extras") {
+    qState.perfumes_ok = document.getElementById("q-perfumes")?.checked ? 1 : 0;
+    qState.treats_ok   = document.getElementById("q-treats")?.checked   ? 1 : 0;
+    val = "done";
+  } else if (s.type === "consents") {
+    const sms  = document.getElementById("c-sms")?.checked;
+    const reg  = document.getElementById("c-regulamin")?.checked;
+    const rodo = document.getElementById("c-rodo")?.checked;
+    if (!sms || !reg || !rodo) {
+      toast("Proszę zaznaczyć wymagane zgody");
+      return;
+    }
+    qState._consents = ["sms_transactional", "regulamin", "rodo"];
+    if (document.getElementById("c-marketing")?.checked) qState._consents.push("sms_marketing");
+    val = "done";
   } else {
     val = ($("#q-input")?.value || "").trim();
   }
 
-  if (s.required && !val) {
-    toast("Будь ласка, заповніть це поле");
+  if (s.required && !val && s.type !== "consents" && s.type !== "extras") {
+    toast("Proszę wypełnić to pole");
     return;
   }
-  qState[s.key] = val;
+  if (s.key !== "_consents" && s.key !== "_extras") qState[s.key] = val;
   renderQuestionnaire(qStep + 1);
 };
 
@@ -740,10 +907,10 @@ window.onPhoneMask = (e) => {
 window.renderQuestionnaire = renderQuestionnaire;
 
 async function finishQuestionnaire() {
-  app.innerHTML = `<div class="loading">${T.loading}</div>`;
+  app.innerHTML = `<div class="loading">Ładowanie…</div>`;
   try {
     const body = {
-      owner_name: qState.owner_name || "Клієнт",
+      owner_name: qState.owner_name || "Klient",
       owner_phone: qState.owner_phone || "",
       owner_telegram_id: tgUser?.id || null,
       pet_name: qState.pet_name,
@@ -752,23 +919,35 @@ async function finishQuestionnaire() {
       photo_url: qState.photo_url || "",
       allergies: qState.allergies || "",
       preferred_cut: qState.preferred_cut || "",
+      health_notes: qState.health_notes || "",
       notes: "",
+      perfumes_ok: qState.perfumes_ok !== undefined ? qState.perfumes_ok : 1,
+      treats_ok:   qState.treats_ok   !== undefined ? qState.treats_ok   : 1,
+      consents: qState._consents || ["sms_transactional", "regulamin", "rodo"],
     };
     const pet = await api("/api/pets", { method: "POST", body });
+    if (body.owner_phone) localStorage.setItem("owner_phone", body.owner_phone);
 
     app.innerHTML = `
       ${header({ title: window.SALON.name })}
-      <div class="hero">
-        <span class="paw">🎉</span>
-        <h2>${T.qFinishTitle}</h2>
-        <p>${T.qFinishSub}</p>
-        <button class="btn white" onclick="showOwnerPet(${pet.id})">${T.qFinishContinue}</button>
+      <div style="background:linear-gradient(160deg, var(--primary) 0%, var(--accent) 100%);
+                  color:white; border-radius:0 0 28px 28px; padding:40px 20px 44px; text-align:center;">
+        <div style="font-size:52px; margin-bottom:12px;">🎉</div>
+        <h2 style="color:white; margin:0 0 8px;">Dziękujemy!</h2>
+        <p style="opacity:0.92; margin:0; font-size:14px;">
+          Karta Państwa psa została utworzona. Będziemy wysyłać przypomnienia SMS przed wizytami.
+        </p>
+      </div>
+      <div style="padding:16px;">
+        <button class="btn" style="width:100%; margin-top:4px;" onclick="showOwnerPet(${pet.id})">
+          Przejdź do karty →
+        </button>
       </div>
     `;
     forceNew = false;
     qState = {};
   } catch (e) {
-    toast("Помилка: " + e.message);
+    toast("Błąd: " + e.message);
   }
 }
 
@@ -816,57 +995,46 @@ function statusChip(status) {
 }
 
 function nextVisitBanner(pet) {
+  const tel = (window.SALON.phone || "").replace(/\s/g, "");
   if (!pet.next_visit) {
     return `
-      <div class="banner" style="background:var(--warning-bg); color:var(--warning-text);">
-        <div class="ic">ℹ️</div>
-        <div class="text"><div class="small">${T.noNextVisit}</div></div>
+      <div class="banner banner-book">
+        <div class="ic">📞</div>
+        <div class="text" style="flex:1;">
+          <strong>Umów wizytę</strong>
+          <div class="small" style="margin:4px 0 10px;">Aby umówić wizytę, zadzwoń lub napisz SMS</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <a href="tel:${tel}" class="btn small" style="text-decoration:none; flex:1; text-align:center;">📞 Zadzwoń</a>
+            <a href="sms:${tel}" class="btn small outline" style="text-decoration:none; flex:1; text-align:center;">💬 SMS</a>
+          </div>
+        </div>
       </div>`;
   }
   const nv = pet.next_visit;
-  const status = nv.confirmation_status;
-  const confirmedOrCancelled = status === "confirmed" || status === "cancelled";
-  const buttons = confirmedOrCancelled
-    ? `<div style="margin-top:8px;">${statusChip(status)}</div>`
-    : `
-      <div class="confirm-row">
-        <button class="primary" onclick="confirmReminder(${nv.id}, 'confirmed', ${pet.id})">${T.confirmBtn}</button>
-        <button onclick="confirmReminder(${nv.id}, 'rescheduled', ${pet.id})">${T.rescheduleBtn}</button>
-        <button class="danger" onclick="confirmReminder(${nv.id}, 'cancelled', ${pet.id})">${T.cancelBtn}</button>
-      </div>`;
   return `
-    <div class="banner">
+    <div class="banner next-visit-accent">
       <div class="ic">📅</div>
-      <div class="text" style="flex:1;">
-        <strong>${T.nextVisitTitle}</strong>
-        <div>${fmtNextVisit(nv.scheduled_for)}</div>
+      <div class="text">
+        <strong>Następna wizyta</strong>
+        <div style="font-size:17px; font-weight:700; margin:3px 0;">${fmtNextVisit(nv.scheduled_for)}</div>
         <div class="small">${window.SALON.address}</div>
-        ${buttons}
+        <div style="font-size:12px; color:var(--text-soft); margin-top:6px; line-height:1.4;">
+          Aby przełożyć lub odwołać wizytę — zadzwoń lub napisz SMS na
+          <a href="tel:${tel}" style="color:var(--primary);">${window.SALON.phone}</a>
+        </div>
       </div>
     </div>`;
 }
 
-window.confirmReminder = async (reminderId, status, petId) => {
-  try {
-    await api(`/api/reminders/${reminderId}/confirm`, {
-      method: "POST",
-      body: { status },
-    });
-    const msgKey = status === "cancelled" ? "cancelledToast" : "confirmedToast";
-    toast(T[msgKey]);
-    const pet = await api(`/api/pets/${petId}`);
-    renderOwnerPetCard(pet, true);
-  } catch (e) {
-    toast("Error: " + e.message);
-  }
-};
+window.renderWelcome = renderWelcome;
 
-function renderOwnerPetCard(pet, showBack = false) {
+function renderOwnerPetCard(pet, _ignored = false) {
   const photoOrEmoji = pet.photo_url
     ? `<img src="${pet.photo_url}">`
     : dogEmoji(pet.breed);
 
   const nextVisit = nextVisitBanner(pet);
+  const tel = (window.SALON.phone || "").replace(/\s/g, "");
 
   const bdayBanner = (pet.days_to_birthday !== null && pet.days_to_birthday <= 14)
     ? `<div class="banner" style="background:var(--warning-bg); color:var(--warning-text);">
@@ -878,23 +1046,19 @@ function renderOwnerPetCard(pet, showBack = false) {
        </div>`
     : "";
 
-  const last = pet.last_visit;
-  const lastBlock = last
-    ? `
-      <div class="card">
-        <div style="font-size:12px; color:var(--text-soft); margin-bottom:6px;
-                    text-transform:uppercase; letter-spacing:0.5px;">${T.lastVisit}</div>
-        <div style="font-weight:600;">${last.service}</div>
-        <div style="font-size:13px; color:var(--text-soft); margin-top:4px;">
-          ${fmtDate(last.visit_date)}${last.cut_style && last.cut_style !== "—" ? ` · ${last.cut_style}` : ""}
-        </div>
-      </div>
-    `
-    : `<div class="card" style="text-align:center; color:var(--text-soft);">${T.noVisits}</div>`;
+  // Multi-pet selector
+  const petSelector = currentOwnerPets.length > 1
+    ? `<div style="display:flex; gap:8px; overflow-x:auto; padding:0 14px 12px; -webkit-overflow-scrolling:touch;">
+        ${currentOwnerPets.map((p, i) =>
+          `<button class="breed-chip${i === currentOwnerPetIdx ? " active" : ""}"
+                   onclick="switchOwnerPet(${i})">${p.name}</button>`
+        ).join("")}
+       </div>`
+    : "";
 
-  const ownerBackFn = showBack ? "renderOwnerDemoLanding()" : (tgUser ? "" : "renderOwnerDemoLanding()");
   app.innerHTML = `
-    ${header({ title: T.myPet, backFn: ownerBackFn })}
+    ${header({ title: window.SALON.name })}
+    ${petSelector}
     <div class="detail-hero">
       <div class="detail-photo">${photoOrEmoji}</div>
       <h2>${pet.name}</h2>
@@ -903,43 +1067,135 @@ function renderOwnerPetCard(pet, showBack = false) {
     ${bdayBanner}
     ${nextVisit}
     ${loyaltyCard(pet.loyalty)}
-    ${lastBlock}
+
     ${pet.allergies ? `
       <div class="card" style="background:var(--warning-bg); color:var(--warning-text);">
-        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; font-weight:600;">
-          ⚠ ${T.allergies}
-        </div>
+        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; font-weight:600;">⚠ Alergie</div>
         <div style="font-size:14px;">${pet.allergies}</div>
       </div>` : ""}
-    ${pet.preferred_cut ? `
-      <div class="card">
-        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; font-weight:600; color:var(--text-soft);">
-          ✂ ${T.preferredCut}
-        </div>
-        <div style="font-size:14px;">${pet.preferred_cut}</div>
-      </div>` : ""}
-
-    ${salonInfoBlock()}
 
     <details class="price-list" id="price-list">
-      <summary>💰 ${T.priceListTitle}</summary>
+      <summary>💰 ${T.priceListTitle}
+        <span style="font-size:11px; font-weight:400; color:var(--text-soft); display:block; margin-top:2px;">
+          Cena może się różnić w zależności od stanu sierści i czasu pracy
+        </span>
+      </summary>
       <div id="price-rows" class="price-list-table" data-breed="${pet.breed || ""}">
         <div style="text-align:center; color:var(--text-soft); font-size:13px; padding:8px;">…</div>
       </div>
     </details>
 
-    <div class="section-title">${T.history} (${pet.visits.length})</div>
+    <div class="section-title">Historia wizyt (${pet.visits.length})</div>
     ${pet.visits.length === 0
-      ? `<div class="empty"><div class="ic">📋</div><p>${T.noVisits}</p></div>`
-      : pet.visits.map(visitItem).join("")}
+      ? `<div class="empty"><div class="ic">📋</div><p>To będzie Państwa pierwsza wizyta</p></div>`
+      : pet.visits.map(visitItemOwner).join("")}
 
-    <div class="action-bar">
-      <button class="btn" onclick="openOwnerBooking(${pet.id})" style="flex:1;">${T.bookVisit}</button>
-      <button class="btn outline" onclick="startQuestionnaire()" style="flex:1;">${T.editInfo}</button>
+    <div style="padding:16px 14px 32px; display:flex; gap:10px;">
+      <a href="tel:${tel}" class="btn" style="flex:1; text-decoration:none; text-align:center;">📞 Zadzwoń</a>
+      <button class="btn outline" onclick="ownerLogout()" style="flex:0 0 auto; padding:0 16px;">Wyloguj</button>
     </div>
   `;
   loadPriceRows();
+
+  // Show rating modal for last visit if not yet rated
+  const unrated = pet.visits.find(v => !v.rating);
+  if (unrated && pet.visits.length > 0 && pet.visits[0] === unrated) {
+    setTimeout(() => showRatingModal(unrated.id, pet.id), 800);
+  }
 }
+
+window.switchOwnerPet = (idx) => {
+  currentOwnerPetIdx = idx;
+  renderOwnerPetCard(currentOwnerPets[idx]);
+};
+
+window.ownerLogout = () => {
+  localStorage.removeItem("owner_phone");
+  currentOwnerPets = [];
+  currentOwnerPetIdx = 0;
+  renderOwnerPhoneLanding();
+};
+
+// Owner visit item — shows groomer note + photos (but not internal notes)
+function visitItemOwner(v) {
+  const d = fmtVisitDate(v.visit_date);
+  const beforeSrc = v.photo_before ? v.photo_before.replace(/'/g, "\\'") : "";
+  const afterSrc  = v.photo_url    ? v.photo_url.replace(/'/g, "\\'") : "";
+  const photos = (v.photo_before || v.photo_url)
+    ? `<div class="visit-photos">
+        ${v.photo_before ? `<div class="visit-photo-wrap"><span class="photo-lbl">Przed</span><img src="${v.photo_before}" onclick="openPhotoSheet('${beforeSrc}','Przed')"></div>` : ""}
+        ${v.photo_url    ? `<div class="visit-photo-wrap"><span class="photo-lbl">Po</span><img src="${v.photo_url}" onclick="openPhotoSheet('${afterSrc}','Po')"></div>` : ""}
+       </div>`
+    : "";
+  const groomerNote = v.groomer_note_for_owner
+    ? `<div class="owner-note-from-groomer">${v.groomer_note_for_owner}</div>`
+    : "";
+  const services = v.services_json ? (() => { try { return JSON.parse(v.services_json).join(", "); } catch(e){ return v.service||""; } })() : (v.service || "—");
+  return `
+    <div class="visit-item" style="flex-wrap:wrap; align-items:flex-start;">
+      <div class="visit-date">
+        <span class="day">${d.day}</span>
+        ${d.month}
+      </div>
+      <div class="visit-info" style="flex:1;">
+        <div class="visit-service">${services} ${ratingStars(v.rating)}</div>
+        ${v.cut_style && v.cut_style !== "—" ? `<div class="visit-meta">${v.cut_style}</div>` : ""}
+        ${groomerNote}
+        ${photos}
+      </div>
+      ${v.price ? `<div class="visit-price">${v.price} zł</div>` : ""}
+    </div>
+  `;
+}
+
+function showRatingModal(visitId, petId) {
+  let overlay = document.getElementById("rating-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "rating-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="rating-modal">
+      <div style="font-size:36px; margin-bottom:10px;">🐾</div>
+      <h3 style="margin:0 0 6px;">Jak oceniają Państwo ostatnią wizytę?</h3>
+      <p style="color:var(--text-soft); font-size:13px; margin:0 0 18px;">Opinia pomaga nam się rozwijać</p>
+      <div class="stars-input big" id="rm-stars">
+        ${[1,2,3,4,5].map(n => `<button type="button" class="star-btn" data-n="${n}" onclick="setRatingModalStar(${n})">★</button>`).join("")}
+      </div>
+      <textarea id="rm-comment" placeholder="Komentarz (opcjonalnie)" style="width:100%; margin:14px 0; resize:none; border-radius:12px; border:1px solid var(--border); padding:10px; font-size:14px; box-sizing:border-box;" rows="3"></textarea>
+      <button class="btn" style="width:100%;" onclick="submitRating(${visitId}, ${petId})">Wyślij ocenę</button>
+      <button class="btn outline" style="width:100%; margin-top:8px;" onclick="closeRatingModal()">Pomiń</button>
+    </div>
+  `;
+  overlay.classList.add("open");
+}
+
+let _ratingModalValue = 0;
+window.setRatingModalStar = (n) => {
+  _ratingModalValue = n;
+  document.querySelectorAll("#rm-stars .star-btn").forEach((b, i) => b.classList.toggle("active", i < n));
+};
+
+window.submitRating = async (visitId, petId) => {
+  if (!_ratingModalValue) { toast("Proszę wybrać ocenę"); return; }
+  try {
+    await api(`/api/visits/${visitId}/rate`, {
+      method: "POST",
+      body: { rating: _ratingModalValue, rating_comment: document.getElementById("rm-comment")?.value || "" },
+    });
+    closeRatingModal();
+    _ratingModalValue = 0;
+    toast("Dziękujemy za ocenę!");
+    const pet = await api(`/api/pets/${petId}`);
+    renderOwnerPetCard(pet);
+  } catch (e) { toast("Błąd: " + e.message); }
+};
+
+window.closeRatingModal = () => {
+  document.getElementById("rating-overlay")?.classList.remove("open");
+  _ratingModalValue = 0;
+};
 
 // ── Прайс-лист: парсинг та рендер ──────────────────────────────────────────
 function parsePriceParts(p) {
@@ -1121,64 +1377,6 @@ async function loadPriceRows() {
   }
 }
 
-window.openOwnerBooking = async (petId) => {
-  const tomorrow = new Date(Date.now() + 86400000);
-  const iso = isoDate(tomorrow);
-  const [svcData, groomers] = await Promise.all([
-    api(`/api/services?lang=${currentLang}`),
-    api("/api/groomers"),
-  ]);
-  // 3 категорії послуг (з columns) + список add-ons
-  const mainSvcs = svcData.columns.map(c => `<option value="${c}">${c}</option>`).join("");
-  const addonSvcs = svcData.additional.map(a => `<option value="${a.name}">${a.name} — ${a.price}</option>`).join("");
-  const svcOptions = mainSvcs + addonSvcs;
-  const grOptions = `<option value="">${T.bookAnyGroomer}</option>` +
-    groomers.map(g => `<option value="${g.id}">${g.name}</option>`).join("");
-
-  openSheet(`
-    <h3>${T.bookVisitTitle}</h3>
-    <div class="row" style="margin-bottom:12px;">
-      <label>${T.service}</label>
-      <select id="b-service">${svcOptions}</select>
-    </div>
-    <div class="row" style="margin-bottom:12px;">
-      <label>${T.visitDate}</label>
-      <input type="date" id="b-date" value="${iso}">
-    </div>
-    <div class="row" style="margin-bottom:12px;">
-      <label>${currentLang === "pl" ? "Godzina" : "Час"}</label>
-      <input type="time" id="b-time" value="11:00">
-    </div>
-    <div class="row" style="margin-bottom:14px;">
-      <label>${T.groomerLabel}</label>
-      <select id="b-groomer">${grOptions}</select>
-    </div>
-    <button class="btn" onclick="saveOwnerBooking(${petId})">${T.save}</button>
-  `);
-};
-
-window.saveOwnerBooking = async (petId) => {
-  try {
-    const groomerEl = $("#b-groomer");
-    const groomer_id = groomerEl?.value ? parseInt(groomerEl.value) : null;
-    const dt = $("#b-date").value + " " + $("#b-time").value;
-    await api(`/api/pets/${petId}/schedule`, {
-      method: "POST",
-      body: {
-        visit_date: dt,
-        service: $("#b-service").value,
-        groomer_id,
-        requested_by_owner: true,
-      },
-    });
-    closeSheet();
-    toast(T.bookSuccess, 3000);
-    const pet = await api(`/api/pets/${petId}`);
-    renderOwnerPetCard(pet, true);
-  } catch (e) {
-    toast("Error: " + e.message);
-  }
-};
 
 // Базовий visit item (для клієнта — без фото)
 function visitItem(v) {
@@ -1354,6 +1552,12 @@ async function renderGroomer() {
       ${currentGroomer?.is_admin ? tabBtn("analytics", T.tabAnalytics) : ""}
     </div>
 
+    <div style="padding:0 14px 8px;">
+      <button class="btn outline small" onclick="renderCreateClient()" style="width:100%;">
+        + Dodaj nowego klienta ręcznie
+      </button>
+    </div>
+
     <div id="pet-list">
       ${filtered.length === 0
         ? `<div class="empty"><div class="ic">🔍</div><p>Нічого не знайдено</p></div>`
@@ -1390,10 +1594,12 @@ function filterPets(pets) {
     list = list.filter(p => p.weeks_since_last_visit !== null && p.weeks_since_last_visit >= (p.followup_weeks || 6));
   }
   if (groomerSearch) {
+    const q = groomerSearch.toLowerCase();
     list = list.filter(p =>
-      (p.name || "").toLowerCase().includes(groomerSearch) ||
-      (p.owner_name || "").toLowerCase().includes(groomerSearch) ||
-      (p.breed || "").toLowerCase().includes(groomerSearch)
+      (p.name || "").toLowerCase().includes(q) ||
+      (p.owner_name || "").toLowerCase().includes(q) ||
+      (p.breed || "").toLowerCase().includes(q) ||
+      (p.owner_phone || "").replace(/\s/g, "").includes(q.replace(/\s/g, ""))
     );
   }
   return list;
@@ -1494,15 +1700,34 @@ function renderPetDetail(pet) {
             <div class="val">${pet.preferred_cut}</div>
           </div>
         </div>` : ""}
-      ${pet.notes ? `
-        <div class="info-row">
-          <div class="ic">📝</div>
+      ${(pet.perfumes_ok === 0 || pet.treats_ok === 0) ? `
+        <div class="info-row warning">
+          <div class="ic">⚠</div>
           <div class="label-block">
-            <div class="lbl">${T.notes}</div>
-            <div class="val">${pet.notes}</div>
+            <div class="lbl">Preferencje</div>
+            <div class="val">${pet.perfumes_ok === 0 ? "Bez perfum  " : ""}${pet.treats_ok === 0 ? "Bez smakołyków" : ""}</div>
+          </div>
+        </div>` : ""}
+      ${pet.health_notes ? `
+        <div class="info-row warning">
+          <div class="ic">🏥</div>
+          <div class="label-block">
+            <div class="lbl">Zdrowie</div>
+            <div class="val">${pet.health_notes}</div>
           </div>
         </div>` : ""}
     </div>
+
+    ${pet.groomer_note_for_owner ? `
+      <div class="notes-block client-visible">
+        <div class="notes-block-label">👤 Informacja dla właściciela <span class="notes-visible-badge">Widoczne dla klienta</span></div>
+        <div>${pet.groomer_note_for_owner}</div>
+      </div>` : ""}
+    ${pet.internal_note ? `
+      <div class="notes-block internal-only">
+        <div class="notes-block-label">🔒 Notatki wewnętrzne salonu <span class="notes-internal-badge">Nie widzi klient</span></div>
+        <div>${pet.internal_note}</div>
+      </div>` : ""}
 
     ${loyaltyCard(pet.loyalty)}
 
@@ -1538,10 +1763,9 @@ async function renderSchedule() {
     dt.setDate(today.getDate() + i - 3);
     const iso = isoDate(dt);
     const isActive = iso === scheduleDate;
-    const days = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"];
     return `
       <div class="date-chip ${isActive ? "active" : ""}" onclick="setScheduleDate('${iso}')">
-        <div class="dc-day">${days[dt.getDay()]}</div>
+        <div class="dc-day">${_daysShort()[dt.getDay()]}</div>
         <div class="dc-num">${dt.getDate()}</div>
       </div>
     `;
@@ -1550,7 +1774,7 @@ async function renderSchedule() {
   const groomersHtml = data.groomers.map(g => {
     const visits = g.visits || [];
     const visitsHtml = visits.length === 0
-      ? `<div class="schedule-free">Вільний день</div>`
+      ? `<div class="schedule-free">Wolny dzień</div>`
       : visits.map(v => {
           const reqChip = v.requested_by_owner ? `<span class="status-chip request">${T_BASE.statusRequest}</span>` : "";
           const statusKey = "status" + ((v.confirmation_status || "pending").charAt(0).toUpperCase() + (v.confirmation_status || "pending").slice(1));
@@ -1573,7 +1797,7 @@ async function renderSchedule() {
         <div class="groomer-header" style="border-left-color:${g.color};">
           <span class="groomer-dot" style="background:${g.color};"></span>
           ${g.name}
-          <span class="groomer-count">${visits.length} ${plural(visits.length, "запис", "записи", "записів")}</span>
+          <span class="groomer-count">${visits.length} ${visits.length === 1 ? "wizyta" : visits.length < 5 ? "wizyty" : "wizyt"}</span>
         </div>
         ${visitsHtml}
       </div>
@@ -1582,12 +1806,16 @@ async function renderSchedule() {
 
   app.innerHTML = `
     ${header({ title: T.tabSchedule, backFn: "goBackToList()" })}
-    <div class="date-strip">${dateStrip}</div>
+    <div style="display:flex; gap:8px; padding:8px 14px 0; align-items:center;">
+      <div class="date-strip" style="flex:1; margin:0;">${dateStrip}</div>
+      <button class="btn outline small" onclick="renderWeekSchedule()" title="Widok tygodniowy"
+              style="flex-shrink:0; padding:0 12px; height:36px; white-space:nowrap;">📆 Tydzień</button>
+    </div>
     <div style="padding: 4px 14px 6px; font-size:13px; color:var(--text-soft);">
       ${fmtDateShort(scheduleDate)}
     </div>
     ${data.groomers.length === 0
-      ? `<div class="empty"><div class="ic">📅</div><p>Грумерів ще немає</p></div>`
+      ? `<div class="empty"><div class="ic">📅</div><p>Brak grooomerów</p></div>`
       : groomersHtml}
     <div class="tabs" style="margin-top:8px;">
       ${tabBtn("all", T.tabAll)}
@@ -1617,25 +1845,126 @@ window.goBackToList = () => {
   renderGroomer();
 };
 
+// ── Week schedule view ────────────────────────────────────────────────────────
+let weekScheduleStart = null;
+
+window.renderWeekSchedule = async (startDate) => {
+  app.innerHTML = `<div class="loading">${T.loading}</div>`;
+  if (startDate) weekScheduleStart = startDate;
+  if (!weekScheduleStart) {
+    const today = new Date();
+    const dow = today.getDay();
+    // Start week on Monday
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+    weekScheduleStart = isoDate(monday);
+  }
+
+  const data = await api(`/api/schedule/week?start_date=${weekScheduleStart}`);
+  const groomers = data.groomers || [];
+
+  // Week navigation
+  const prevMonday = (() => {
+    const d = new Date(weekScheduleStart + "T00:00:00");
+    d.setDate(d.getDate() - 7);
+    return isoDate(d);
+  })();
+  const nextMonday = (() => {
+    const d = new Date(weekScheduleStart + "T00:00:00");
+    d.setDate(d.getDate() + 7);
+    return isoDate(d);
+  })();
+
+  const daysHtml = data.days.map(day => {
+    const dt = new Date(day.date + "T00:00:00");
+    const isToday = day.date === isoToday();
+    const visits = day.visits || [];
+    const visitsHtml = visits.length === 0
+      ? `<div style="font-size:12px; color:var(--text-soft); padding:4px 0;">wolny</div>`
+      : visits.map(v => {
+          const groomer = groomers.find(g => g.id === v.groomer_id);
+          const dot = groomer
+            ? `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${groomer.color}; margin-right:4px;"></span>`
+            : "";
+          return `<div class="week-visit-item" onclick="showPet(${v.pet_id})">
+            ${dot}<span style="font-size:12px; font-weight:600;">${fmtTime(v.scheduled_for)}</span>
+            <span style="font-size:12px; margin-left:4px;">${v.pet_name}</span>
+          </div>`;
+        }).join("");
+    return `
+      <div class="week-day-col${isToday ? " today" : ""}" onclick="setScheduleDateAndDay('${day.date}')">
+        <div class="week-day-header">
+          <div class="week-day-name">${_daysShort()[dt.getDay()]}</div>
+          <div class="week-day-num${isToday ? " today" : ""}">${dt.getDate()}</div>
+        </div>
+        <div class="week-day-visits">${visitsHtml}</div>
+      </div>
+    `;
+  }).join("");
+
+  app.innerHTML = `
+    ${header({ title: "Tydzień", backFn: "renderSchedule()" })}
+    <div style="display:flex; align-items:center; gap:10px; padding:8px 14px 6px;">
+      <button class="btn outline small" onclick="renderWeekSchedule('${prevMonday}')">← Poprzedni</button>
+      <div style="flex:1; text-align:center; font-size:13px; color:var(--text-soft);">
+        ${fmtDateShort(weekScheduleStart)} – ${fmtDateShort(data.week_end)}
+      </div>
+      <button class="btn outline small" onclick="renderWeekSchedule('${nextMonday}')">Następny →</button>
+    </div>
+    <div class="week-grid">${daysHtml}</div>
+    <div style="padding:10px 14px 6px;">
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        ${groomers.map(g => `<span style="display:flex; align-items:center; gap:5px; font-size:12px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${g.color};display:inline-block;"></span>
+          ${g.name}
+        </span>`).join("")}
+      </div>
+    </div>
+    <div class="tabs" style="margin-top:8px;">
+      ${tabBtn("all", T.tabAll)}
+      ${tabBtn("today", T.tabToday)}
+      ${tabBtn("birthdays", T.tabBirthdays)}
+      ${tabBtn("followup", T.tabFollowup)}
+      ${tabBtn("schedule", T.tabSchedule)}
+      ${tabBtn("analytics", T.tabAnalytics)}
+    </div>
+  `;
+};
+
+window.setScheduleDateAndDay = (iso) => {
+  scheduleDate = iso;
+  groomerTab = "schedule";
+  renderSchedule();
+};
+
 // ── Аналітика (вкладка) ──────────────────────────────────────────────────────
 let analyticsPeriod = "month";
 
 async function renderAnalytics() {
   app.innerHTML = `<div class="loading">${T.loading}</div>`;
-  const data = await api(`/api/analytics?period=${analyticsPeriod}`);
+  const isAdmin = currentGroomer?.is_admin ? 1 : 0;
+  let data;
+  try {
+    data = await api(`/api/analytics?period=${analyticsPeriod}&is_admin=${isAdmin}`);
+  } catch (e) {
+    app.innerHTML = `
+      ${header({ title: T.tabAnalytics, backFn: "goBackToList()" })}
+      <div class="empty"><div class="ic">🔒</div><p>Brak dostępu do analityki</p></div>
+    `;
+    return;
+  }
 
   const maxRevenue = Math.max(...(data.revenue_by_week.map(w => w.revenue)), 1);
+  const months = ["sty","lut","mar","kwi","maj","cze","lip","sie","wrz","paź","lis","gru"];
 
   const weeksHtml = data.revenue_by_week.length === 0
-    ? `<div style="color:var(--text-soft); font-size:13px; padding:8px 0;">Немає даних за цей період</div>`
+    ? `<div style="color:var(--text-soft); font-size:13px; padding:8px 0;">Brak danych za ten okres</div>`
     : data.revenue_by_week.map(w => {
         const pct = Math.round((w.revenue / maxRevenue) * 100);
         const dt = new Date(w.week + "T00:00:00");
-        const months = ["січ","лют","бер","кві","тра","чер","лип","сер","вер","жов","лис","гру"];
-        const label = `${dt.getDate()} ${months[dt.getMonth()]}`;
         return `
           <div class="analytic-bar-row">
-            <div class="analytic-bar-label">${label}</div>
+            <div class="analytic-bar-label">${dt.getDate()} ${months[dt.getMonth()]}</div>
             <div class="analytic-bar-track">
               <div class="analytic-bar-fill" style="width:${pct}%"></div>
             </div>
@@ -1644,49 +1973,50 @@ async function renderAnalytics() {
         `;
       }).join("");
 
-  const servicesHtml = data.top_services.length === 0
-    ? `<div style="color:var(--text-soft); font-size:13px;">Немає даних</div>`
-    : data.top_services.map((s, i) => `
-        <div style="display:flex; justify-content:space-between; padding:8px 0;
-                    border-bottom: ${i < data.top_services.length - 1 ? "1px solid var(--border)" : "none"};">
-          <span style="font-size:14px;">${s.service}</span>
-          <span style="font-weight:600; color:var(--primary);">${s.count} разів</span>
-        </div>
-      `).join("");
+  const byGroomerHtml = (data.by_groomer || []).map(g => `
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 0;
+                border-bottom:1px solid var(--border);">
+      <div style="width:10px; height:10px; border-radius:50%; background:${g.color}; flex-shrink:0;"></div>
+      <div style="flex:1; font-weight:600; font-size:14px;">${g.name}</div>
+      <div style="text-align:right; font-size:13px; color:var(--text-soft);">
+        <div style="font-weight:600; color:var(--primary);">${g.revenue} zł</div>
+        <div>${g.visits_count} wizyt${g.avg_rating ? ` · ⭐${g.avg_rating}` : ""}</div>
+      </div>
+    </div>
+  `).join("");
 
   app.innerHTML = `
     ${header({ title: T.tabAnalytics, backFn: "goBackToList()" })}
 
     <div style="display:flex; gap:8px; padding: 0 14px 10px;">
       <button class="btn ${analyticsPeriod === "month" ? "" : "outline"} small"
-              onclick="setAnalyticsPeriod('month')">Цей місяць</button>
+              onclick="setAnalyticsPeriod('month')">Ten miesiąc</button>
       <button class="btn ${analyticsPeriod === "last_month" ? "" : "outline"} small"
-              onclick="setAnalyticsPeriod('last_month')">Минулий місяць</button>
+              onclick="setAnalyticsPeriod('last_month')">Poprzedni miesiąc</button>
     </div>
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 14px 10px;">
-      <div class="stat"><div class="label">Дохід</div>
+      <div class="stat"><div class="label">Przychód</div>
         <div class="value" style="white-space:nowrap;">${data.revenue_total} zł</div></div>
-      <div class="stat"><div class="label">Візитів</div>
+      <div class="stat"><div class="label">Wizyty</div>
         <div class="value">${data.visits_count}</div></div>
-      <div class="stat"><div class="label">Сер. чек</div>
+      <div class="stat"><div class="label">Śr. wizyta</div>
         <div class="value" style="white-space:nowrap;">${Math.round(data.avg_per_visit)} zł</div></div>
-      <div class="stat"><div class="label">Нових клієнтів</div>
+      <div class="stat"><div class="label">Nowi klienci</div>
         <div class="value">${data.new_clients}</div></div>
-      <div class="stat"><div class="label">Підтверджень</div>
-        <div class="value">${data.confirm_rate ?? 0}%</div></div>
-      <div class="stat"><div class="label">Рейтинг</div>
-        <div class="value" style="white-space:nowrap;">${data.avg_rating ? "⭐ " + data.avg_rating : "—"}</div></div>
+      <div class="stat" style="grid-column:1/-1;"><div class="label">Ocena</div>
+        <div class="value" style="white-space:nowrap;">${data.avg_rating ? "⭐ " + data.avg_rating + ` (${data.ratings_count})` : "—"}</div></div>
     </div>
 
+    ${byGroomerHtml ? `
     <div class="card">
-      <div class="section-title" style="padding:0 0 10px;">Дохід по тижнях</div>
+      <div class="section-title" style="padding:0 0 6px;">Przychód według groomera</div>
+      ${byGroomerHtml}
+    </div>` : ""}
+
+    <div class="card">
+      <div class="section-title" style="padding:0 0 10px;">Przychód tygodniowo</div>
       ${weeksHtml}
-    </div>
-
-    <div class="card">
-      <div class="section-title" style="padding:0 0 10px;">Топ послуги</div>
-      ${servicesHtml}
     </div>
 
     <div class="tabs" style="margin-top:8px;">
@@ -1757,19 +2087,49 @@ window.openAddVisit = async (petId) => {
     }
   } catch (e) { /* якщо не завантажились — пропускаємо */ }
 
+  // Load services for checkboxes
+  let svcCheckboxes = "";
+  try {
+    const svcData = await api("/api/services?lang=pl");
+    const mainServices = svcData.columns;
+    const addons = svcData.additional;
+    svcCheckboxes = `
+      <div class="row" style="margin-bottom:12px;">
+        <label>Usługi</label>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${mainServices.map((s, i) => `
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+              <input type="checkbox" class="v-svc" value="${s}" ${i===0?"checked":""} style="width:auto;">
+              <span style="font-size:14px;">${s}</span>
+            </label>
+          `).join("")}
+          ${addons.map(a => `
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+              <input type="checkbox" class="v-svc" value="${a.name}" style="width:auto;">
+              <span style="font-size:14px;">${a.name} — ${a.price}</span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    svcCheckboxes = `
+      <div class="row" style="margin-bottom:12px;">
+        <label>${T.service}</label>
+        <input type="text" id="v-service" value="Pełne grooming">
+      </div>`;
+  }
+
   openSheet(`
     <h3>${T.addVisitTitle}</h3>
     <div class="row" style="margin-bottom:12px;">
       <label>${T.visitDate}</label>
       <input type="date" id="v-date" value="${isoToday()}">
     </div>
-    <div class="row" style="margin-bottom:12px;">
-      <label>${T.service}</label>
-      <input type="text" id="v-service" value="Повне грумування">
-    </div>
+    ${svcCheckboxes}
     <div class="row" style="margin-bottom:12px;">
       <label>${T.cutStyle}</label>
-      <input type="text" id="v-cut" placeholder="Класична / коротка / ...">
+      <input type="text" id="v-cut" placeholder="Krótkie, równe / naturalne…">
     </div>
     <div class="row" style="margin-bottom:12px;">
       <label>${T.price}</label>
@@ -1796,19 +2156,26 @@ window.openAddVisit = async (petId) => {
              onchange="onVisitPhotoChange(event, 'after')">
     </label>
     <input type="hidden" id="v-photo-url" value="">
-    <div class="row" style="margin-bottom:12px;">
-      <label>${T.cutStyle === T.cutStyle ? "Рейтинг (опційно)" : ""}</label>
-      <div class="stars-input" id="v-rating-input">
-        ${[1,2,3,4,5].map(n => `<button type="button" class="star-btn" data-n="${n}" onclick="setVisitRating(${n})">★</button>`).join("")}
+
+    <div class="notes-block client-visible" style="margin-bottom:12px;">
+      <div class="notes-block-label">
+        👤 Notatka dla właściciela
+        <span class="notes-visible-badge">Widoczne dla klienta!</span>
       </div>
+      <textarea id="v-note-owner" placeholder="Np. polecamy odżywkę…" rows="2" style="width:100%; resize:none; box-sizing:border-box; margin-top:6px; border:none; background:transparent; font-size:14px;"></textarea>
     </div>
-    <div class="row" style="margin-bottom:12px;">
-      <label>${T.visitNotes}</label>
-      <textarea id="v-notes" placeholder=""></textarea>
+
+    <div class="notes-block internal-only" style="margin-bottom:12px;">
+      <div class="notes-block-label">
+        🔒 Notatka wewnętrzna salonu
+        <span class="notes-internal-badge">Nie widzi klient</span>
+      </div>
+      <textarea id="v-notes" placeholder="Np. pies był nerwowy, kolejny raz z kagancem…" rows="2" style="width:100%; resize:none; box-sizing:border-box; margin-top:6px; border:none; background:transparent; font-size:14px;"></textarea>
     </div>
+
     <div class="row" style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
       <input type="checkbox" id="v-followup" checked style="width:auto;">
-      <label for="v-followup" style="margin:0;">${T.scheduleFollowup}</label>
+      <label for="v-followup" style="margin:0; font-size:14px;">Zaplanuj przypomnienie za 6 tygodni</label>
     </div>
     <button class="btn" onclick="saveVisit(${petId})">${T.save}</button>
   `);
@@ -1840,35 +2207,44 @@ window.setVisitRating = (n) => {
 };
 
 window.saveVisit = async (petId) => {
+  const noteOwner = ($("#v-note-owner")?.value || "").trim();
+  if (noteOwner) {
+    const ok = confirm("Ta notatka BĘDZIE WIDOCZNA dla klienta.\n\nCzy na pewno chcesz ją zapisać?");
+    if (!ok) return;
+  }
   try {
     const groomerEl = $("#v-groomer");
     const groomer_id = groomerEl?.value ? parseInt(groomerEl.value) : null;
+    // Collect checked services
+    const checkedSvcs = [...document.querySelectorAll(".v-svc:checked")].map(el => el.value);
+    const serviceText = checkedSvcs.join(", ") || ($("#v-service")?.value || "");
     const pet = await api(`/api/pets/${petId}/visits`, {
       method: "POST",
       body: {
         visit_date: $("#v-date").value,
-        service: $("#v-service").value,
+        service: serviceText,
+        services_json: JSON.stringify(checkedSvcs),
         cut_style: $("#v-cut").value,
         price: parseFloat($("#v-price").value) || 0,
         notes: $("#v-notes").value,
+        groomer_note_for_owner: noteOwner,
         photo_before: $("#v-photo-before")?.value || "",
         photo_url: $("#v-photo-url")?.value || "",
-        rating: _newVisitRating || null,
+        rating: null,
         groomer_id,
         schedule_followup: $("#v-followup").checked,
       },
     });
-    _newVisitRating = 0;
     closeSheet();
     const loy = pet.loyalty;
     if (loy?.milestone_reached) {
-      toast(`🎁 Знижка ${loy.milestone_discount}% — ця стрижка зі знижкою!`, 3500);
+      toast(`🎁 Zniżka ${loy.milestone_discount}% — to strzyżenie ze zniżką!`, 3500);
     } else {
       toast(T.saved);
     }
     showPet(petId);
   } catch (e) {
-    toast("Помилка: " + e.message);
+    toast("Błąd: " + e.message);
   }
 };
 
@@ -1981,7 +2357,75 @@ function escapeHtml(s) {
 }
 
 window.renderGroomer = renderGroomer;
-window.renderOwnerDemoLanding = renderOwnerDemoLanding;
+window.renderOwnerPhoneLanding = renderOwnerPhoneLanding;
+
+// Manual client creation form (for groomer view)
+window.renderCreateClient = () => {
+  app.innerHTML = `
+    ${header({ title: "Nowy klient", backFn: "renderGroomer()" })}
+    <div style="padding:14px; display:flex; flex-direction:column; gap:12px;">
+      <div class="card" style="padding:16px;">
+        <div style="font-size:13px; color:var(--text-soft); margin-bottom:14px; line-height:1.5;">
+          Dla osób starszych, które nie mogą samodzielnie wypełnić formularza —
+          wprowadź dane za klienta.
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div><label style="font-size:12px; color:var(--text-soft); display:block; margin-bottom:4px;">Imię i nazwisko właściciela *</label>
+            <input id="nc-name" type="text" placeholder="Anna Kowalska" style="width:100%; box-sizing:border-box;"></div>
+          <div><label style="font-size:12px; color:var(--text-soft); display:block; margin-bottom:4px;">Telefon *</label>
+            <div class="phone-row">
+              <select id="nc-country">
+                <option value="+48">🇵🇱 +48</option>
+                <option value="+380">🇺🇦 +380</option>
+                <option value="+49">🇩🇪 +49</option>
+              </select>
+              <input id="nc-phone" type="tel" inputmode="numeric" placeholder="123 456 789" oninput="onPhoneMask(event)">
+            </div></div>
+          <div><label style="font-size:12px; color:var(--text-soft); display:block; margin-bottom:4px;">Imię psa *</label>
+            <input id="nc-pet" type="text" placeholder="Bella" style="width:100%; box-sizing:border-box;"></div>
+          <div><label style="font-size:12px; color:var(--text-soft); display:block; margin-bottom:4px;">Rasa</label>
+            <input id="nc-breed" type="text" list="nc-breed-list" placeholder="Zacznij pisać rasę…" style="width:100%; box-sizing:border-box;">
+            <datalist id="nc-breed-list"></datalist></div>
+          <div><label style="font-size:12px; color:var(--text-soft); display:block; margin-bottom:4px;">Data urodzenia psa</label>
+            <input id="nc-bday" type="date" style="width:100%; box-sizing:border-box;"></div>
+          <div><label style="font-size:12px; color:var(--text-soft); display:block; margin-bottom:4px;">Alergie</label>
+            <input id="nc-allergies" type="text" placeholder="Np. szampon z lanoliną" style="width:100%; box-sizing:border-box;"></div>
+        </div>
+      </div>
+      <button class="btn" onclick="saveNewClient()">Zapisz klienta</button>
+    </div>
+  `;
+  api("/api/services?lang=pl").then(d => {
+    const dl = document.getElementById("nc-breed-list");
+    if (dl) dl.innerHTML = d.rows.map(r => `<option value="${r.breed}">`).join("");
+  }).catch(() => {});
+};
+
+window.saveNewClient = async () => {
+  const name = document.getElementById("nc-name")?.value.trim();
+  const petName = document.getElementById("nc-pet")?.value.trim();
+  const code = document.getElementById("nc-country")?.value || "+48";
+  const num  = (document.getElementById("nc-phone")?.value || "").trim();
+  if (!name || !petName) { toast("Imię właściciela i psa są wymagane"); return; }
+  const phone = num ? `${code} ${num}` : "";
+  try {
+    const pet = await api("/api/pets", {
+      method: "POST",
+      body: {
+        owner_name: name,
+        owner_phone: phone,
+        pet_name: petName,
+        breed: document.getElementById("nc-breed")?.value || "",
+        birthday: document.getElementById("nc-bday")?.value || "",
+        allergies: document.getElementById("nc-allergies")?.value || "",
+        notes: "",
+        consents: ["sms_transactional", "regulamin", "rodo"],
+      },
+    });
+    toast("Klient dodany");
+    showPet(pet.id);
+  } catch (e) { toast("Błąd: " + e.message); }
+};
 
 // ── Клавіатура: підіймаємо btn-row ──────────────────────────────────────────
 (function initKeyboardShift() {

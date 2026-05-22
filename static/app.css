@@ -857,3 +857,178 @@ input[type="checkbox"] {
   background: var(--primary-soft);
 }
 .loyalty-card.not-eligible .loyalty-paws { opacity: 0.4; }
+
+/* ── Week schedule grid ── */
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 0 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.week-day-col {
+  min-width: 42px;
+  border-radius: 12px;
+  padding: 4px 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.week-day-col:hover { background: var(--primary-soft); }
+.week-day-col.today { background: var(--primary-soft); }
+.week-day-header { text-align: center; margin-bottom: 4px; }
+.week-day-name { font-size: 10px; color: var(--text-soft); text-transform: uppercase; font-weight: 600; }
+.week-day-num {
+  font-size: 16px; font-weight: 700; color: var(--text);
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; margin: 2px auto 0;
+}
+.week-day-num.today { background: var(--primary); color: white; }
+.week-day-visits { min-height: 40px; }
+.week-visit-item {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 3px 4px;
+  margin-bottom: 2px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  cursor: pointer;
+}
+
+/* ── Next visit accent banner ── */
+.banner.next-visit-accent {
+  background: var(--primary-soft);
+  border-left: 4px solid var(--primary);
+}
+.banner.banner-book {
+  background: #EFF6EE;
+  border-left: 4px solid var(--success);
+}
+
+/* ── Two-level notes (groomer view) ── */
+.notes-block {
+  margin: 8px 14px;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.notes-block-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.6px; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.notes-block.client-visible {
+  background: #EAF5EA;
+  border: 1.5px solid #A8D5A2;
+}
+.notes-block.client-visible .notes-block-label { color: #2D6A2D; }
+.notes-visible-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  background: #2D6A2D; color: white;
+  border-radius: 6px; padding: 2px 7px;
+}
+.notes-block.internal-only {
+  background: #FFF3E0;
+  border: 1.5px dashed #E8961A;
+}
+.notes-block.internal-only .notes-block-label { color: #7A4510; }
+.notes-internal-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  background: #E8961A; color: white;
+  border-radius: 6px; padding: 2px 7px;
+}
+/* Owner visit: note from groomer to owner */
+.owner-note-from-groomer {
+  font-size: 13px; color: #2D6A2D; font-style: italic;
+  background: #EAF5EA; border-radius: 8px;
+  padding: 6px 10px; margin-top: 6px;
+  border-left: 3px solid #A8D5A2;
+}
+
+/* ── Fullscreen rating overlay ── */
+#rating-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(46, 36, 25, 0.65);
+  z-index: 100;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+#rating-overlay.open {
+  display: flex;
+}
+.rating-modal {
+  background: var(--surface);
+  border-radius: 24px;
+  padding: 28px 24px;
+  width: 100%; max-width: 380px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+.rating-modal h3 { font-size: 18px; color: var(--text); }
+.stars-input.big .star-btn {
+  font-size: 36px; width: 48px; height: 48px;
+}
+
+/* ── Breed chips (questionnaire) ── */
+.breed-chip {
+  padding: 7px 14px; border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--surface); font-size: 13px;
+  cursor: pointer; color: var(--text);
+  transition: background 0.15s, border-color 0.15s;
+}
+.breed-chip.active, .breed-chip:hover {
+  background: var(--primary-soft); border-color: var(--primary);
+  color: var(--primary-dark); font-weight: 600;
+}
+
+/* ── Consent rows (questionnaire) ── */
+.consent-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  cursor: pointer; font-size: 14px; line-height: 1.5;
+}
+.consent-row input[type="checkbox"] {
+  width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; cursor: pointer;
+  accent-color: var(--primary);
+}
+
+/* ── Toggle row (extras step) ── */
+.toggle-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 14px; background: var(--surface);
+  border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--border);
+}
+.toggle-row input[type="checkbox"] {
+  width: 44px; height: 26px; flex-shrink: 0;
+  appearance: none; -webkit-appearance: none;
+  background: var(--border); border-radius: 999px;
+  cursor: pointer; position: relative; transition: background 0.2s;
+}
+.toggle-row input[type="checkbox"]::after {
+  content: ""; position: absolute;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: white; top: 3px; left: 3px;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.toggle-row input[type="checkbox"]:checked {
+  background: var(--primary);
+}
+.toggle-row input[type="checkbox"]:checked::after {
+  transform: translateX(18px);
+}
+
+/* ── Phone-row for landing page ── */
+.salon-info {
+  padding: 16px; background: var(--surface);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.salon-info .row-line {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 0; font-size: 14px;
+}
+.salon-info .row-line .ic { flex-shrink: 0; font-size: 16px; }
