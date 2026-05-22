@@ -258,6 +258,11 @@ const LANG_PL = {
   retakePhoto: "📷 Zmień zdjęcie",
   reminderTitle: "Przypomnienie",
   today: "Dziś",
+  birthdays: "Tydz.",
+  search: "Szukaj psa lub właściciela…",
+  price: "Cena, zł",
+  total: "Łącznie",
+  noResults: "Brak wyników",
 };
 
 // currentLang and T are initialized after `role` is parsed (see below)
@@ -1553,7 +1558,7 @@ async function renderGroomer() {
         <div class="value">${stats.week_bdays}</div>
       </div>
       <div class="stat">
-        <div class="label">Всього</div>
+        <div class="label">${T.total}</div>
         <div class="value">${pets.length}</div>
       </div>
     </div>
@@ -1579,7 +1584,7 @@ async function renderGroomer() {
 
     <div id="pet-list">
       ${filtered.length === 0
-        ? `<div class="empty"><div class="ic">🔍</div><p>Нічого не знайдено</p></div>`
+        ? `<div class="empty"><div class="ic">🔍</div><p>${T.noResults}</p></div>`
         : filtered.map(petCardHTML).join("")}
     </div>
   `;
@@ -1588,7 +1593,7 @@ async function renderGroomer() {
     groomerSearch = e.target.value.toLowerCase();
     const f = filterPets(pets);
     $("#pet-list").innerHTML = f.length === 0
-      ? `<div class="empty"><div class="ic">🔍</div><p>Нічого не знайдено</p></div>`
+      ? `<div class="empty"><div class="ic">🔍</div><p>${T.noResults}</p></div>`
       : f.map(petCardHTML).join("");
   });
 }
