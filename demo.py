@@ -272,6 +272,7 @@ async def db_init():
             "ALTER TABLE visits ADD COLUMN internal_note TEXT",
             "ALTER TABLE visits ADD COLUMN rating_comment TEXT",
             "CREATE TABLE IF NOT EXISTS consents (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER REFERENCES owners(id) ON DELETE CASCADE, kind TEXT NOT NULL, consented_at TEXT DEFAULT (datetime('now','localtime')))",
+            "ALTER TABLE pets ADD COLUMN loyalty_disabled INTEGER DEFAULT 0",
         ]:
             try:
                 await conn.execute(sql)
@@ -314,11 +315,12 @@ def days_until_birthday(birthday: str | None) -> int | None:
     return (this_year - today).days
 
 
-def loyalty_info(visit_count: int, breed: str | None = None) -> dict:
+def loyalty_info(visit_count: int, breed: str | None = None, loyalty_disabled: int = 0) -> dict:
     """Karta stałego klienta: 5-та стрижка -10%, 10-та стрижка -25%.
-    Доступна тільки для еліґібельних порід (yellow у прайсі)."""
-    eligible = breed_eligible_for_loyalty(breed)
-    base = {"visit_count": visit_count, "eligible": eligible}
+    Доступна тільки для еліґібельних порід (yellow у прайсі).
+    Groomer може вручну вимкнути/увімкнути через loyalty_disabled."""
+    eligible = breed_eligible_for_loyalty(breed) and not loyalty_disabled
+    base = {"visit_count": visit_count, "eligible": eligible, "loyalty_disabled": bool(loyalty_disabled)}
     if not eligible:
         return {**base, "cycle_position": 0, "next_milestone": 0,
                 "visits_to_milestone": 0, "milestone_reached": False, "milestone_discount": 0}
@@ -371,7 +373,7 @@ async def pet_full(conn, pet_id: int) -> dict[str, Any] | None:
     else:
         pet["weeks_since_last_visit"] = None
     pet["visit_count"] = len(visits)
-    pet["loyalty"] = loyalty_info(len(visits), pet.get("breed"))
+    pet["loyalty"] = loyalty_info(len(visits), pet.get("breed"), pet.get("loyalty_disabled", 0))
     return pet
 
 
@@ -561,7 +563,7 @@ async def api_pets():
                 "SELECT COUNT(*) FROM visits WHERE pet_id=?", (p["id"],)
             )).fetchone()
             p["visit_count"] = cnt[0] if cnt else 0
-            p["loyalty"] = loyalty_info(p["visit_count"], p.get("breed"))
+            p["loyalty"] = loyalty_info(p["visit_count"], p.get("breed"), p.get("loyalty_disabled", 0))
             pets.append(p)
         return pets
     finally:
@@ -963,6 +965,22 @@ async def api_update_pet(pet_id: int, body: PetIn):
         await conn.execute(
             "UPDATE owners SET name=?, phone=? WHERE id=?",
             (body.owner_name, body.owner_phone, pet["owner_id"]),
+        )
+        await conn.commit()
+        return await pet_full(conn, pet_id)
+    finally:
+        await conn.close()
+
+
+@app.patch("/api/pets/{pet_id}/loyalty")
+async def api_toggle_loyalty(pet_id: int, request: Request):
+    """Groomer toggle: enable/disable loyalty card for a specific pet."""
+    body = await request.json()
+    disabled = 1 if body.get("disabled") else 0
+    conn = await db()
+    try:
+        await conn.execute(
+            "UPDATE pets SET loyalty_disabled=? WHERE id=?", (disabled, pet_id)
         )
         await conn.commit()
         return await pet_full(conn, pet_id)

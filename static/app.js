@@ -457,13 +457,14 @@ function loyaltyCard(loyalty) {
   const { cycle_position, visits_to_milestone, milestone_reached, milestone_discount, visit_count, eligible } = loyalty;
 
   // Якщо порода не еліґібельна — показуємо інформативну заглушку
+  const loyaltyTitleStr = (role === "owner" || currentLang === "pl") ? "Karta stałego klienta" : T.loyaltyTitle;
   if (eligible === false) {
     const text = role === "owner" || currentLang === "pl"
       ? "Karta stałego klienta dostępna jest dla wybranych ras (Yorki, Maltańczyk, Pudel i inne — patrz cennik)."
       : "Картка лояльності доступна для обраних порід (йорк, мальтезе, пудель та інші — див. прайс).";
     return `
       <div class="card loyalty-card not-eligible">
-        <div class="loyalty-title">${T.loyaltyTitle}</div>
+        <div class="loyalty-title">${loyaltyTitleStr}</div>
         <div class="loyalty-paws">${"🐾".repeat(5).split("").map(_ => '<span class="paw-icon">🐾</span>').join("")}</div>
         <div class="loyalty-status" style="font-size:12px; line-height:1.4;">${text}</div>
       </div>
@@ -499,10 +500,9 @@ function loyaltyCard(loyalty) {
     statusHtml = `<div class="loyalty-status">${txt}</div>`;
   }
 
-  const loyaltyTitle = (role === "owner" || currentLang === "pl") ? "Karta stałego klienta" : T.loyaltyTitle;
   return `
     <div class="card loyalty-card">
-      <div class="loyalty-title">${loyaltyTitle}</div>
+      <div class="loyalty-title">${loyaltyTitleStr}</div>
       <div class="loyalty-paws">${paws}</div>
       ${statusHtml}
     </div>
@@ -1668,6 +1668,14 @@ window.showPet = async (id) => {
   renderPetDetail(pet);
 };
 
+window.toggleLoyalty = async (petId, enabled) => {
+  const pet = await api(`/api/pets/${petId}/loyalty`, {
+    method: "PATCH",
+    body: { disabled: !enabled },
+  });
+  renderPetDetail(pet);
+};
+
 function renderPetDetail(pet) {
   const photo = pet.photo_url ? `<img src="${pet.photo_url}">` : dogEmoji(pet.breed);
 
@@ -1754,6 +1762,22 @@ function renderPetDetail(pet) {
       </div>` : ""}
 
     ${loyaltyCard(pet.loyalty)}
+
+    <div class="card" style="padding:10px 16px; margin-top:-4px;">
+      <label class="toggle-row" style="padding:0; background:transparent; border:none; gap:12px;">
+        <div style="flex:1;">
+          <div style="font-weight:600; font-size:14px;">Karta stałego klienta</div>
+          <div style="font-size:12px; color:var(--text-soft); margin-top:2px;">
+            ${pet.loyalty.loyalty_disabled
+              ? "Wyłączona ręcznie przez salon"
+              : (pet.loyalty.eligible ? "Aktywna" : "Nieaktywna — rasa poza programem")}
+          </div>
+        </div>
+        <input type="checkbox" id="loyalty-toggle"
+               ${!pet.loyalty.loyalty_disabled ? "checked" : ""}
+               onchange="toggleLoyalty(${pet.id}, this.checked)">
+      </label>
+    </div>
 
     <div class="section-title">${T.history} (${pet.visits.length})</div>
     ${pet.visits.length === 0
